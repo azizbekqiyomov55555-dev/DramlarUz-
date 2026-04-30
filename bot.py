@@ -2,6 +2,7 @@
 """
 🎬 Kino Bot — To'liq versiya
 Fly.io + JSONBin | Bot API 9.4 rangli tugmalar + premium emoji
+Admin paneldan emoji IDlarini o'zgartirish imkoniyati
 """
 
 import logging, asyncio, json, os, threading, time
@@ -25,10 +26,9 @@ JSONBIN_API_KEY = "$2a$10$mQZC26SFNwuUJbIo3fANVO3eiIMW4jWdJTva4/6tBlESt4AAde.mi"
 JSONBIN_BIN_ID  = "69cc43a2856a682189e936f0"
 JSONBIN_URL     = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
 
-# ═══════════════════ PREMIUM EMOJI IDlar ══════════════════
-# Telegram'ning bepul animatsiyali custom emoji IDlari
-# (Bot API 9.4 — icon_custom_emoji_id orqali tugmalarda ko'rinadi)
-PE = {
+# ═══════════════ DEFAULT PREMIUM EMOJI IDlar ══════════════
+# DB da saqlanmasa, shu default IDlar ishlatiladi
+DEFAULT_PE = {
     "film":    "5374062524014462236",  # 🎬
     "search":  "5373141891321699086",  # 🔍
     "help":    "5379748062124056162",  # 🆘
@@ -48,6 +48,27 @@ PE = {
     "watch":   "5373141891321699086",  # 🎬
 }
 
+# Emoji kalitlarining o'qilishi uchun label lari
+PE_LABELS = {
+    "film":    "🎬 Kino (film)",
+    "search":  "🔍 Qidirish (search)",
+    "help":    "🆘 Yordam (help)",
+    "install": "📥 O'rnatish (install)",
+    "home":    "🏠 Bosh menyu (home)",
+    "add":     "➕ Qo'shish (add)",
+    "money":   "💰 Pul (money)",
+    "stats":   "📊 Statistika (stats)",
+    "post":    "📢 Post (post)",
+    "lock":    "🔒 Qulf (lock)",
+    "card":    "💳 Karta (card)",
+    "phone":   "📲 Telefon (phone)",
+    "play":    "▶️ O'ynatish (play)",
+    "share":   "📤 Ulashish (share)",
+    "check":   "✅ Tasdiqlash (check)",
+    "reply":   "✉️ Javob (reply)",
+    "watch":   "🎬 Tomosha (watch)",
+}
+
 # ═══════════════════════ LOGGING ══════════════════════════
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -64,6 +85,7 @@ DEFAULT_DB = {
     "pending_payments": {},
     "settings":         {"install_file_id": None, "install_video_id": None},
     "stats":            {"total_views": 0},
+    "emoji_ids":        {},   # ← Admin o'zgartirgan emoji IDlar shu yerda
 }
 
 def db_load():
@@ -108,12 +130,21 @@ def save():
         logger.error("❌ Saqlash muvaffaqiyatsiz!")
     return ok
 
-# ═══════════════════ TUGMA YORDAMCHISI ════════════════════
+# ═══════════════════ EMOJI ID OLISH ═══════════════════════
+def pe(key: str) -> str:
+    """
+    Emoji ID ni DB dan oladi.
+    Agar admin o'zgartirgan bo'lsa — o'zgartirilganini,
+    aks holda DEFAULT ni qaytaradi.
+    """
+    return DB.get("emoji_ids", {}).get(key) or DEFAULT_PE.get(key, "")
 
-def ibtn(text, data=None, url=None, style=None, emoji_id=None):
+# ═══════════════════ TUGMA YORDAMCHISI ════════════════════
+def ibtn(text, data=None, url=None, style=None, emoji_key=None):
     """
     InlineKeyboardButton — Bot API 9.4 rangli + premium emoji.
-    style: 'primary'(ko'k) | 'success'(yashil) | 'danger'(qizil)
+    style:     'primary'(ko'k) | 'success'(yashil) | 'danger'(qizil)
+    emoji_key: PE lug'atidagi kalit (masalan 'play', 'lock', 'check')
     """
     kwargs = {"text": text}
     if data: kwargs["callback_data"] = data
@@ -122,15 +153,15 @@ def ibtn(text, data=None, url=None, style=None, emoji_id=None):
     if style:
         try: btn.style = style
         except Exception: pass
-    if emoji_id:
-        try: btn.icon_custom_emoji_id = emoji_id
-        except Exception: pass
+    if emoji_key:
+        eid = pe(emoji_key)
+        if eid:
+            try: btn.icon_custom_emoji_id = eid
+            except Exception: pass
     return btn
 
 # ═══════════════════ REPLY KLAVIATURALAR ══════════════════
-
 def main_menu_kb():
-    """Foydalanuvchi asosiy menyu — oddiy ReplyKeyboard."""
     kb = [
         [KeyboardButton("🆘 Yordam"),
          KeyboardButton("📥 Ilovani o'rnatish")],
@@ -138,7 +169,6 @@ def main_menu_kb():
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
 def admin_menu_kb():
-    """Admin panel — oddiy ReplyKeyboard."""
     kb = [
         [KeyboardButton("🎬 Kino joylash"),
          KeyboardButton("➕ Qism qo'shish")],
@@ -148,27 +178,21 @@ def admin_menu_kb():
          KeyboardButton("🔒 Majburiy kanal")],
         [KeyboardButton("💳 Karta raqami"),
          KeyboardButton("📲 Ilova fayl/video")],
+        [KeyboardButton("🎭 Emoji sozlamalari")],   # ← YANGI TUGMA
         [KeyboardButton("🏠 Asosiy menyu")],
     ]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
 # ═══════════════════ INLINE KLAVIATURALAR ═════════════════
-
 def subscription_kb(channels):
-    """Obuna bo'lish + tekshirish — rangli inline."""
     kb = [[ibtn(f"📢 {c['title']}", url=c["url"],
-                style="primary", emoji_id=PE["post"])]
+                style="primary", emoji_key="post")]
           for c in channels]
     kb.append([ibtn("✅ Tekshirish", data="check_sub",
-                    style="success", emoji_id=PE["check"])])
+                    style="success", emoji_key="check")])
     return InlineKeyboardMarkup(kb)
 
 def movie_episodes_kb(movie, code, user_id):
-    """
-    Qismlar klaviaturasi:
-      bepul  → yashil ▶️
-      pullik → qizil  🔒
-    """
     eps    = movie.get("episodes", [])
     prices = movie.get("prices", {})
     paid   = DB["users"].get(str(user_id), {}).get("paid_episodes", {})
@@ -178,46 +202,75 @@ def movie_episodes_kb(movie, code, user_id):
         price     = prices.get(ep_key)
         is_locked = price and not paid.get(f"{code}_{ep_key}")
         if is_locked:
-            label  = f"🔒 {ep_key}-qism  💰 {price} so'm"
-            style  = "danger"
-            eid    = PE["lock"]
+            label = f"🔒 {ep_key}-qism  💰 {price} so'm"
+            style = "danger"
+            ekey  = "lock"
         else:
-            label  = f"▶️ {ep_key}-qism"
-            style  = "success"
-            eid    = PE["play"]
+            label = f"▶️ {ep_key}-qism"
+            style = "success"
+            ekey  = "play"
         kb.append([ibtn(label, data=f"ep|{code}|{ep_key}",
-                        style=style, emoji_id=eid)])
+                        style=style, emoji_key=ekey)])
     return InlineKeyboardMarkup(kb)
 
 def payment_admin_kb(pid):
     return InlineKeyboardMarkup([[
         ibtn("✅ Tasdiqlash",   data=f"pay_ok|{pid}",
-             style="success", emoji_id=PE["check"]),
+             style="success", emoji_key="check"),
         ibtn("❌ Bekor qilish", data=f"pay_no|{pid}",
-             style="danger",  emoji_id=PE["lock"]),
+             style="danger",  emoji_key="lock"),
     ]])
 
 def share_kb(share_url):
     return InlineKeyboardMarkup([[
         ibtn("📤 Do'stlarga ulashish", url=share_url,
-             style="primary", emoji_id=PE["share"]),
+             style="primary", emoji_key="share"),
     ]])
 
 def channel_post_kb(bot_username, code):
     return InlineKeyboardMarkup([[
         ibtn("🎬 Tomosha qilish",
              url=f"https://t.me/{bot_username}?start=code_{code}",
-             style="success", emoji_id=PE["watch"]),
+             style="success", emoji_key="watch"),
     ]])
 
 def reply_admin_kb(uid):
     return InlineKeyboardMarkup([[
         ibtn("✉️ Javob berish", data=f"reply|{uid}",
-             style="primary", emoji_id=PE["reply"]),
+             style="primary", emoji_key="reply"),
     ]])
 
-# ═══════════════════ YORDAMCHI FUNKSIYALAR ════════════════
+# ══════════════ EMOJI SOZLAMALARI KLAVIATURASI ═════════════
+def emoji_list_kb():
+    """
+    Har bir emoji kaliti uchun inline tugma.
+    Joriy emoji ID ning oxirgi 6 raqami ham ko'rsatiladi.
+    """
+    kb = []
+    keys = list(PE_LABELS.keys())
+    for i in range(0, len(keys), 2):
+        row = []
+        for key in keys[i:i+2]:
+            current = DB.get("emoji_ids", {}).get(key) or DEFAULT_PE.get(key, "")
+            short   = f"…{current[-6:]}" if current else "yo'q"
+            label   = f"{PE_LABELS[key]}  [{short}]"
+            row.append(ibtn(label, data=f"emoji_edit|{key}"))
+        kb.append(row)
+    kb.append([ibtn("🔄 Hammasini tiklash", data="emoji_reset_all", style="danger")])
+    kb.append([ibtn("✅ Yopish", data="emoji_close", style="success")])
+    return InlineKeyboardMarkup(kb)
 
+def emoji_single_kb(key):
+    """Bitta emoji tahrirlash oynasining tugmalari."""
+    current = DB.get("emoji_ids", {}).get(key) or DEFAULT_PE.get(key, "")
+    default = DEFAULT_PE.get(key, "")
+    kb = [
+        [ibtn("🔄 Defaultga qaytarish", data=f"emoji_reset|{key}", style="primary")],
+        [ibtn("⬅️ Orqaga", data="emoji_back", style="success")],
+    ]
+    return InlineKeyboardMarkup(kb), current, default
+
+# ═══════════════════ YORDAMCHI FUNKSIYALAR ════════════════
 async def check_subscription(user_id: int, bot) -> list:
     not_subbed = []
     for ch in DB.get("channels", []):
@@ -234,18 +287,16 @@ def register_user(user):
     uid = str(user.id)
     if uid not in DB["users"]:
         DB["users"][uid] = {
-            "name":           user.full_name,
-            "username":       user.username or "",
-            "joined":         datetime.now().isoformat(),
-            "paid_episodes":  {},
-            "watched":        {},
+            "name":          user.full_name,
+            "username":      user.username or "",
+            "joined":        datetime.now().isoformat(),
+            "paid_episodes": {},
+            "watched":       {},
         }
         save()
 
 async def send_movie_menu(src, context, code):
-    """Kino poster + qismlar inline klaviaturasini yuborish."""
     movie = DB["movies"].get(code)
-
     if hasattr(src, "effective_user"):
         chat_id = src.effective_user.id
         user_id = src.effective_user.id
@@ -254,7 +305,7 @@ async def send_movie_menu(src, context, code):
         user_id = src.from_user.id
 
     if not movie:
-        txt = "❓ Bunday kodli kino topilmadi. Kodni tekshirib qayta yuboring."
+        txt = "❓ Bunday kodli kino topilmadi."
         try:
             if hasattr(src, "message") and src.message:
                 await src.edit_message_text(txt)
@@ -287,7 +338,6 @@ async def send_movie_menu(src, context, code):
         logger.error(f"send_movie_menu: {e}")
 
 # ═══════════════════════ /start ═══════════════════════════
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user)
@@ -324,8 +374,64 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("👑 <b>Admin panel</b>",
             parse_mode="HTML", reply_markup=admin_menu_kb())
 
-# ═══════════════════ CALLBACK HANDLERLAR ══════════════════
+# ══════════════ EMOJI SOZLAMALARI CALLBACK ═════════════════
+async def cb_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q    = update.callback_query
+    data = q.data
+    await q.answer()
 
+    # ── Ro'yxatni ko'rsat ──
+    if data == "emoji_back":
+        await q.edit_message_text(
+            "🎭 <b>Emoji sozlamalari</b>\n\n"
+            "O'zgartirmoqchi bo'lgan emoji tugmasini tanlang.\n"
+            "<i>Qavs ichida — joriy ID ning oxirgi 6 raqami</i>",
+            parse_mode="HTML",
+            reply_markup=emoji_list_kb())
+        return
+
+    # ── Yopish ──
+    if data == "emoji_close":
+        await q.edit_message_text("✅ Emoji sozlamalari yopildi.")
+        return
+
+    # ── Hammasini default ga qaytarish ──
+    if data == "emoji_reset_all":
+        DB["emoji_ids"] = {}
+        save()
+        await q.edit_message_text(
+            "🔄 <b>Barcha emoji IDlar default ga qaytarildi!</b>",
+            parse_mode="HTML",
+            reply_markup=emoji_list_kb())
+        return
+
+    # ── Bitta default ga qaytarish ──
+    if data.startswith("emoji_reset|"):
+        key = data.split("|")[1]
+        DB["emoji_ids"].pop(key, None)
+        save()
+        markup, current, default = emoji_single_kb(key)
+        await q.edit_message_text(
+            f"🔄 <b>{PE_LABELS.get(key, key)}</b> default ga qaytarildi!\n\n"
+            f"📌 Default ID:\n<code>{default}</code>",
+            parse_mode="HTML", reply_markup=markup)
+        return
+
+    # ── Emoji tahrirlash oynasi ──
+    if data.startswith("emoji_edit|"):
+        key = data.split("|")[1]
+        markup, current, default = emoji_single_kb(key)
+        context.user_data["editing_emoji_key"] = key
+        await q.edit_message_text(
+            f"✏️ <b>{PE_LABELS.get(key, key)}</b>\n\n"
+            f"📌 Joriy ID:\n<code>{current}</code>\n\n"
+            f"📎 Default ID:\n<code>{default}</code>\n\n"
+            f"🔽 Yangi premium emoji IDni yuboring\n"
+            f"<i>(Emoji IDni @getidsbot orqali topish mumkin)</i>",
+            parse_mode="HTML", reply_markup=markup)
+        return
+
+# ════════════════════ CALLBACK HANDLERLAR ═════════════════
 async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -463,8 +569,26 @@ async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✍️ <code>{uid}</code> ga xabar yozing (matn/rasm/video).",
         parse_mode="HTML")
 
-# ═══════════════════════ /help ════════════════════════════
+# ══════════════════ MASTER CALLBACK HANDLER ═══════════════
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = update.callback_query.data
 
+    if data == "check_sub":
+        await cb_check_sub(update, context)
+    elif data.startswith("ep|"):
+        await cb_episode(update, context)
+    elif data.startswith("pay_ok|") or data.startswith("pay_no|"):
+        await cb_payment(update, context)
+    elif data.startswith("reply|"):
+        await cb_reply(update, context)
+    elif data.startswith("emoji_") or data.startswith("emoji_edit|"):
+        # Faqat admin foydalana oladi
+        if update.callback_query.from_user.id == ADMIN_ID:
+            await cb_emoji(update, context)
+        else:
+            await update.callback_query.answer("🚫 Ruxsat yo'q", show_alert=True)
+
+# ═══════════════════════ /help ════════════════════════════
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✍️ Savol yoki muammoingizni <b>matn, rasm yoki video</b> ko'rinishida yuboring.\n"
@@ -473,9 +597,8 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["awaiting_help"] = True
 
 # ═══════════════════ ILOVA O'RNATISH ══════════════════════
-
 async def handle_install(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    s   = DB.get("settings", {})
+    s    = DB.get("settings", {})
     f_id = s.get("install_file_id")
     v_id = s.get("install_video_id")
     if not f_id and not v_id:
@@ -488,24 +611,35 @@ async def handle_install(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(f_id,
             caption="📦 <b>Ilova fayli</b>", parse_mode="HTML")
 
-# ════════════════════ MATN HANDLER ════════════════════════
+# ═══════════════════ EMOJI SOZLAMALAR PANELI ══════════════
+async def show_emoji_panel(update: Update):
+    """Admin 🎭 Emoji sozlamalari tugmasini bosganda chiqadi."""
+    await update.message.reply_text(
+        "🎭 <b>Emoji sozlamalari</b>\n\n"
+        "O'zgartirmoqchi bo'lgan emoji tugmasini tanlang.\n"
+        "<i>Qavs ichida — joriy ID ning oxirgi 6 raqami</i>",
+        parse_mode="HTML",
+        reply_markup=emoji_list_kb())
 
+# ════════════════════ MATN HANDLER ════════════════════════
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid  = user.id
     text = (update.message.text or "").strip()
 
-    # ── Admin tugmalari ──
     ADMIN_BTNS = (
         "🎬 Kino joylash", "➕ Qism qo'shish", "💰 Qismni pullik qilish",
         "📊 Statistika",   "📢 Kanalga post",  "🔒 Majburiy kanal",
         "💳 Karta raqami", "📲 Ilova fayl/video", "🏠 Asosiy menyu",
+        "🎭 Emoji sozlamalari",   # ← YANGI
     )
     if uid == ADMIN_ID and text in ADMIN_BTNS:
+        if text == "🎭 Emoji sozlamalari":
+            await show_emoji_panel(update)
+            return
         await admin_buttons(update, context, text)
         return
 
-    # ── Foydalanuvchi tugmalari ──
     if text == "🆘 Yordam":
         await handle_help(update, context)
         return
@@ -513,11 +647,30 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_install(update, context)
         return
 
-    # ── Admin state ──
+    # ── Emoji ID ni saqlash (admin tahrirlash rejimi) ──
+    if uid == ADMIN_ID and context.user_data.get("editing_emoji_key"):
+        key      = context.user_data.pop("editing_emoji_key")
+        new_id   = text.strip()
+        if not new_id.isdigit() or len(new_id) < 10:
+            await update.message.reply_text(
+                "❌ Noto'g'ri ID format. Faqat raqamlardan iborat bo'lishi kerak.\n"
+                "<i>Masalan: 5368324170671202286</i>",
+                parse_mode="HTML")
+            context.user_data["editing_emoji_key"] = key
+            return
+        DB.setdefault("emoji_ids", {})[key] = new_id
+        save()
+        await update.message.reply_text(
+            f"✅ <b>{PE_LABELS.get(key, key)}</b> emoji IDsi yangilandi!\n\n"
+            f"🆕 Yangi ID:\n<code>{new_id}</code>\n\n"
+            f"<i>Endi barcha yangi tugmalarda shu emoji ko'rinadi.</i>",
+            parse_mode="HTML",
+            reply_markup=emoji_list_kb())
+        return
+
     if uid == ADMIN_ID and await admin_state_handler(update, context, text):
         return
 
-    # ── Yordam xabari ──
     if context.user_data.pop("awaiting_help", False):
         cap = (f"🆘 <b>Yordam so'rovi</b>\n"
                f"👤 {user.full_name} (@{user.username or '-'})\n"
@@ -527,7 +680,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ Xabaringiz adminga yuborildi!")
         return
 
-    # ── Admin javob ──
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
@@ -538,480 +690,305 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Xato: {e}")
         return
 
-    # ── Chek kutilmoqda ──
     if context.user_data.get("awaiting_check"):
         await update.message.reply_text(
             "📸 Iltimos chek <b>rasmini</b> yuboring.", parse_mode="HTML")
         return
 
-    # ── Kino kodi ──
-    code = text
+    # Kino kodi
+    code = text.upper().strip()
     if code in DB["movies"]:
-        await send_movie_menu(update, context, code)
-        return
-
-    # ── Topilmadi ──
-    await update.message.reply_text(
-        f"❓ <b>«{text}»</b> kodli kino topilmadi.\n"
-        f"Kodni tekshirib qayta yuboring.",
-        parse_mode="HTML")
-
-# ══════════════════ MEDIA HANDLER ═════════════════════════
-
-async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid  = update.effective_user.id
-    user = update.effective_user
-    ud   = context.user_data
-    state = ud.get("admin_state")
-
-    # Yordam — media
-    if ud.pop("awaiting_help", False):
-        cap = (f"🆘 <b>Yordam so'rovi</b>\n"
-               f"👤 {user.full_name} (@{user.username or '-'})\n"
-               f"🆔 <code>{uid}</code>\n\n")
-        kb = reply_admin_kb(uid)
-        if update.message.photo:
-            await context.bot.send_photo(ADMIN_ID,
-                update.message.photo[-1].file_id,
-                caption=cap + (update.message.caption or ""),
-                parse_mode="HTML", reply_markup=kb)
-        elif update.message.video:
-            await context.bot.send_video(ADMIN_ID,
-                update.message.video.file_id,
-                caption=cap + (update.message.caption or ""),
-                parse_mode="HTML", reply_markup=kb)
-        await update.message.reply_text("✅ Xabaringiz adminga yuborildi!")
-        return
-
-    # Admin javob — media
-    if uid == ADMIN_ID and "reply_to" in ud:
-        target = ud.pop("reply_to")
-        try:
-            if update.message.photo:
-                await context.bot.send_photo(target,
-                    update.message.photo[-1].file_id,
-                    caption=update.message.caption or "")
-            elif update.message.video:
-                await context.bot.send_video(target,
-                    update.message.video.file_id,
-                    caption=update.message.caption or "")
-            await update.message.reply_text("✅ Yuborildi!")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Xato: {e}")
-        return
-
-    # Chek rasmi
-    if ud.get("awaiting_check") and update.message.photo:
-        info = ud.pop("awaiting_check")
-        pid  = f"{uid}_{datetime.now().timestamp()}"
-        DB["pending_payments"][pid] = {
-            "user_id": uid, "code": info["code"],
-            "ep": info["ep"], "price": info["price"], "status": "pending",
-        }
-        save()
-        cap = (f"💳 <b>Yangi to'lov cheki</b>\n"
-               f"👤 {user.full_name} (@{user.username or '-'})\n"
-               f"🆔 <code>{uid}</code>\n"
-               f"🎬 Kino: <b>{info['code']}</b>\n"
-               f"🎞 Qism: <b>{info['ep']}</b>\n"
-               f"💰 Narx: <b>{info['price']} so'm</b>")
-        await context.bot.send_photo(ADMIN_ID,
-            update.message.photo[-1].file_id,
-            caption=cap, parse_mode="HTML",
-            reply_markup=payment_admin_kb(pid))
-        await update.message.reply_text(
-            "✅ Chekingiz qabul qilindi!\n"
-            "⏳ Admin tekshiradi. Tasdiqlangach video avtomatik yuboriladi.")
-        return
-
-    if uid != ADMIN_ID:
-        return
-
-    # ── Admin media statelari ──
-    if state == "install_file":
-        if update.message.document:
-            DB["settings"]["install_file_id"] = update.message.document.file_id
-            save()
-            ud["admin_state"] = "install_video"
+        not_subbed = await check_subscription(uid, context.bot)
+        if not_subbed:
             await update.message.reply_text(
-                "✅ Fayl saqlandi. Endi <b>videoni</b> yuboring:", parse_mode="HTML")
-        else:
-            await update.message.reply_text("📦 Document turidagi fayl yuboring.")
-        return
-
-    if state == "install_video":
-        if update.message.video:
-            DB["settings"]["install_video_id"] = update.message.video.file_id
-            save()
-            ud.pop("admin_state", None)
-            await update.message.reply_text(
-                "✅ Ilova fayl va video saqlandi!", reply_markup=admin_menu_kb())
-        else:
-            await update.message.reply_text("🎥 Video yuboring.")
-        return
-
-    if state == "movie_poster":
-        if not update.message.photo:
-            await update.message.reply_text("🖼 Rasm yuboring.")
+                "🔒 Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
+                reply_markup=subscription_kb(not_subbed))
+            context.user_data["pending_code"] = code
             return
-        ud["new_movie"]["poster_file_id"] = update.message.photo[-1].file_id
-        ud["admin_state"] = "movie_title"
+        await send_movie_menu(update, context, code)
+    else:
         await update.message.reply_text(
-            "✍️ Kino <b>nomini</b> yuboring:", parse_mode="HTML")
-        return
+            "❓ Kino kodi topilmadi.\n📥 To'g'ri kodni yuboring.")
 
-    if state == "movie_episodes" and update.message.video:
-        ud["new_movie"]["episodes"].append(update.message.video.file_id)
-        n = len(ud["new_movie"]["episodes"])
+# ════════════════════ ADMIN TUGMALARI ═════════════════════
+async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    if text == "🏠 Asosiy menyu":
+        await update.message.reply_text("🏠 Asosiy menyu",
+            reply_markup=main_menu_kb())
+        return
+    if text == "📊 Statistika":
+        u = len(DB.get("users", {}))
+        m = len(DB.get("movies", {}))
+        v = DB.get("stats", {}).get("total_views", 0)
         await update.message.reply_text(
-            f"✅ Qism qo'shildi ({n} ta). Yana yuboring yoki <b>NEXT</b> yozing.",
+            f"📊 <b>Statistika</b>\n\n"
+            f"👥 Foydalanuvchilar: <b>{u}</b>\n"
+            f"🎬 Kinolar: <b>{m}</b>\n"
+            f"👁 Jami ko'rishlar: <b>{v}</b>",
             parse_mode="HTML")
         return
-
-    if state == "addep_video" and update.message.video:
-        code = ud.get("addep_code")
-        if code and code in DB["movies"]:
-            DB["movies"][code]["episodes"].append(update.message.video.file_id)
-            save()
-            n = len(DB["movies"][code]["episodes"])
-            await update.message.reply_text(
-                f"✅ Qism qo'shildi ({n}-qism). Yana yuboring yoki <b>NEXT</b> deb yozing.",
-                parse_mode="HTML")
-        return
-
-# ════════════════ ADMIN TUGMALARI ═════════════════════════
-
-async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    ud = context.user_data
-    ud.pop("admin_state", None)
-
-    if text == "🏠 Asosiy menyu":
-        await update.message.reply_text("🏠 Asosiy menyu", reply_markup=main_menu_kb())
-        return
-
-    if text == "🎬 Kino joylash":
-        ud["admin_state"] = "movie_poster"
-        ud["new_movie"]   = {"episodes": []}
-        await update.message.reply_text(
-            "🖼 Avval kino uchun <b>rasm (poster)</b> yuboring.", parse_mode="HTML")
-        return
-
-    if text == "➕ Qism qo'shish":
-        ud["admin_state"] = "addep_code"
-        await update.message.reply_text(
-            "🔢 Mavjud kino <b>kodini</b> yuboring:", parse_mode="HTML")
-        return
-
-    if text == "💰 Qismni pullik qilish":
-        ud["admin_state"] = "paid_code"
-        await update.message.reply_text(
-            "🔢 Kino <b>kodini</b> yuboring:", parse_mode="HTML")
-        return
-
-    if text == "📊 Statistika":
-        lines = [
-            "📊 <b>Statistika</b>\n",
-            f"👥 Foydalanuvchilar: <b>{len(DB['users'])}</b>",
-            f"🎬 Kinolar: <b>{len(DB['movies'])}</b>",
-            f"👁 Umumiy ko'rishlar: <b>{DB.get('stats',{}).get('total_views',0)}</b>\n",
-            "<b>Kinolar bo'yicha:</b>",
-        ]
-        for code, m in DB["movies"].items():
-            total = sum(m.get("views", {}).values())
-            lines.append(
-                f"• <code>{code}</code> — {m.get('title','?')} "
-                f"({len(m.get('episodes',[]))} qism, 👁 {total})")
-        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-        return
-
-    if text == "📢 Kanalga post":
-        ud["admin_state"] = "post_code"
-        await update.message.reply_text(
-            "🔢 Kanalga yuboriladigan kino <b>kodini</b> yuboring:", parse_mode="HTML")
-        return
-
-    if text == "🔒 Majburiy kanal":
-        lines = ["🔒 <b>Majburiy kanallar</b>\n"]
-        for i, c in enumerate(DB.get("channels", []), 1):
-            lines.append(f"{i}. {c['title']} — {c['username']}")
-        lines.append("\nYangi qo'shish: <code>@username | Kanal nomi | https://t.me/...</code>")
-        lines.append("O'chirish: <code>/delch raqam</code>")
-        ud["admin_state"] = "add_channel"
-        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
-        return
-
     if text == "💳 Karta raqami":
-        ud["admin_state"] = "set_card"
+        context.user_data["admin_state"] = "set_card"
+        cur = DB.get("card_number") or "Kiritilmagan"
         await update.message.reply_text(
-            f"💳 Hozirgi: <code>{DB.get('card_number') or 'yoq'}</code>\n"
-            "Yangi karta raqamini yuboring:", parse_mode="HTML")
+            f"💳 Joriy karta: <code>{cur}</code>\n\nYangi karta raqamini yuboring:",
+            parse_mode="HTML")
         return
-
+    if text == "🎬 Kino joylash":
+        context.user_data["admin_state"] = "add_movie_code"
+        await update.message.reply_text("🎬 Kino kodini kiriting (masalan: AVATAR):")
+        return
+    if text == "➕ Qism qo'shish":
+        context.user_data["admin_state"] = "add_ep_code"
+        await update.message.reply_text("🎬 Qism qo'shmoqchi bo'lgan kino kodini kiriting:")
+        return
+    if text == "💰 Qismni pullik qilish":
+        context.user_data["admin_state"] = "set_price_code"
+        await update.message.reply_text("🎬 Kino kodini kiriting:")
+        return
     if text == "📲 Ilova fayl/video":
-        ud["admin_state"] = "install_file"
+        context.user_data["admin_state"] = "set_install"
+        await update.message.reply_text("📲 Ilova fayl yoki video yuboring:")
+        return
+    if text == "🔒 Majburiy kanal":
+        context.user_data["admin_state"] = "add_channel"
         await update.message.reply_text(
-            "📦 Ilova <b>faylini</b> (document) yuboring:", parse_mode="HTML")
+            "📢 Kanal username va nomi yuboring:\n"
+            "<code>@username | Kanal nomi | https://t.me/username</code>",
+            parse_mode="HTML")
+        return
+    if text == "📢 Kanalga post":
+        context.user_data["admin_state"] = "post_channel_code"
+        await update.message.reply_text("🎬 Post qilmoqchi bo'lgan kino kodini kiriting:")
         return
 
-# ═══════════════ ADMIN STATE HANDLER ══════════════════════
-
-async def admin_state_handler(update: Update,
-                               context: ContextTypes.DEFAULT_TYPE,
-                               text: str) -> bool:
-    ud    = context.user_data
-    state = ud.get("admin_state")
+async def admin_state_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+    state = context.user_data.get("admin_state")
     if not state:
         return False
-
-    if state == "add_channel":
-        try:
-            parts = [p.strip() for p in text.split("|")]
-            DB.setdefault("channels", []).append(
-                {"username": parts[0], "title": parts[1], "url": parts[2]})
-            save()
-            await update.message.reply_text(f"✅ Qo'shildi: {parts[1]}")
-        except Exception:
-            await update.message.reply_text("❌ Format: @username | Nom | https://t.me/...")
-        ud.pop("admin_state", None)
-        return True
 
     if state == "set_card":
         DB["card_number"] = text
         save()
-        await update.message.reply_text(
-            f"✅ Karta saqlandi: <code>{text}</code>", parse_mode="HTML")
-        ud.pop("admin_state", None)
+        context.user_data.pop("admin_state")
+        await update.message.reply_text(f"✅ Karta saqlandi: <code>{text}</code>", parse_mode="HTML")
         return True
 
-    if state == "addep_code":
-        if text not in DB["movies"]:
-            await update.message.reply_text("❌ Bunday kod yo'q.")
-            ud.pop("admin_state", None)
-            return True
-        ud["addep_code"]  = text
-        ud["admin_state"] = "addep_video"
-        await update.message.reply_text(
-            f"🎬 <b>{text}</b> ga video(lar)ni yuboring. Tugagach <b>NEXT</b> deb yozing.",
-            parse_mode="HTML")
+    if state == "add_movie_code":
+        context.user_data["new_movie_code"] = text.upper()
+        context.user_data["admin_state"]    = "add_movie_title"
+        await update.message.reply_text("📝 Kino nomini kiriting:")
         return True
 
-    if state == "addep_video" and text.upper() == "NEXT":
-        await update.message.reply_text("✅ Qismlar qo'shildi!", reply_markup=admin_menu_kb())
-        ud.pop("admin_state", None)
-        ud.pop("addep_code", None)
-        return True
-
-    if state == "paid_code":
-        if text not in DB["movies"]:
-            await update.message.reply_text("❌ Bunday kod yo'q.")
-            ud.pop("admin_state", None)
-            return True
-        ud["paid_code"]   = text
-        ud["admin_state"] = "paid_ep"
-        await update.message.reply_text("🎞 Nechinchi qismni pullik qilamiz? (raqam)")
-        return True
-
-    if state == "paid_ep":
-        if not text.isdigit():
-            await update.message.reply_text("❌ Raqam yuboring.")
-            return True
-        ud["paid_ep"]     = text
-        ud["admin_state"] = "paid_price"
-        await update.message.reply_text("💰 Narxini so'mda yuboring (masalan: 10000)")
-        return True
-
-    if state == "paid_price":
-        if not text.isdigit():
-            await update.message.reply_text("❌ Faqat raqam.")
-            return True
-        code = ud.pop("paid_code")
-        ep   = ud.pop("paid_ep")
-        DB["movies"][code].setdefault("prices", {})[ep] = int(text)
+    if state == "add_movie_title":
+        code = context.user_data.get("new_movie_code")
+        DB["movies"][code] = {"title": text, "episodes": [], "prices": {}}
         save()
+        context.user_data.pop("admin_state")
+        context.user_data.pop("new_movie_code", None)
         await update.message.reply_text(
-            f"✅ Saqlandi: <b>{code}</b> {ep}-qism — {text} so'm",
-            parse_mode="HTML")
-        ud.pop("admin_state", None)
-        return True
-
-    if state == "movie_episodes" and text.upper() == "NEXT":
-        ud["admin_state"] = "movie_code"
-        await update.message.reply_text(
-            "🔢 Kino <b>kodini</b> kiriting (masalan: 1):", parse_mode="HTML")
-        return True
-
-    if state == "movie_code":
-        code = text.strip()
-        nm   = ud.pop("new_movie", {})
-        if not nm.get("episodes"):
-            await update.message.reply_text("❌ Hech qism yuklanmagan.")
-            ud.pop("admin_state", None)
-            return True
-        DB["movies"][code] = {
-            "title":          nm.get("title") or f"Kino #{code}",
-            "poster_file_id": nm.get("poster_file_id"),
-            "episodes":       nm["episodes"],
-            "views":          {},
-            "prices":         {},
-        }
-        save()
-        await update.message.reply_text(
-            f"✅ <b>Kino saqlandi!</b>\nKod: <code>{code}</code>\n"
-            f"Qismlar: {len(nm['episodes'])}",
-            parse_mode="HTML", reply_markup=admin_menu_kb())
-        ud.pop("admin_state", None)
-        return True
-
-    if state == "movie_title":
-        ud["new_movie"]["title"] = text
-        ud["admin_state"]        = "movie_episodes"
-        await update.message.reply_text(
-            "🎬 Endi <b>video(lar)ni</b> yuboring. Tugagach <b>NEXT</b> yozing.",
+            f"✅ <b>{text}</b> kinosi qo'shildi!\nKod: <code>{code}</code>",
             parse_mode="HTML")
         return True
 
-    if state == "post_code":
-        if text not in DB["movies"]:
+    if state == "add_ep_code":
+        code = text.upper()
+        if code not in DB["movies"]:
             await update.message.reply_text("❌ Bunday kod yo'q.")
-            ud.pop("admin_state", None)
+            context.user_data.pop("admin_state")
             return True
-        ud["post_code"]   = text
-        ud["admin_state"] = "post_channel"
-        await update.message.reply_text("📢 Kanal username (masalan: @kino_kanal):")
+        context.user_data["ep_movie_code"] = code
+        context.user_data["admin_state"]   = "add_ep_video"
+        await update.message.reply_text(f"📹 <b>{code}</b> uchun video yuboring:", parse_mode="HTML")
         return True
 
-    if state == "post_channel":
-        code    = ud.pop("post_code")
-        channel = text.strip()
-        m       = DB["movies"].get(code)
-        if not m:
-            await update.message.reply_text("❌ Kino topilmadi.")
-            ud.pop("admin_state", None)
+    if state == "set_price_code":
+        code = text.upper()
+        if code not in DB["movies"]:
+            await update.message.reply_text("❌ Bunday kod yo'q.")
+            context.user_data.pop("admin_state")
             return True
-        bot_username = (await context.bot.get_me()).username
-        caption = (
-            f"🎬 <b>{m.get('title')}</b>\n"
-            f"📺 Qismlar: <b>{len(m.get('episodes', []))}</b>\n"
-            f"🔢 Kod: <b>{code}</b>\n\n"
-            f"Tomosha qilish uchun tugmani bosing 👇"
-        )
+        context.user_data["price_movie_code"] = code
+        context.user_data["admin_state"]      = "set_price_ep"
+        await update.message.reply_text(f"🎞 Qism raqamini kiriting:")
+        return True
+
+    if state == "set_price_ep":
+        context.user_data["price_ep"]   = text
+        context.user_data["admin_state"] = "set_price_amount"
+        await update.message.reply_text("💰 Narxini kiriting (so'mda):")
+        return True
+
+    if state == "set_price_amount":
+        code = context.user_data.get("price_movie_code")
+        ep   = context.user_data.get("price_ep")
+        DB["movies"][code].setdefault("prices", {})[ep] = text
+        save()
+        context.user_data.pop("admin_state")
+        await update.message.reply_text(f"✅ {code} — {ep}-qism narxi: {text} so'm", parse_mode="HTML")
+        return True
+
+    if state == "add_channel":
         try:
-            kb = channel_post_kb(bot_username, code)
-            if m.get("poster_file_id"):
-                await context.bot.send_photo(channel, m["poster_file_id"],
-                    caption=caption, parse_mode="HTML", reply_markup=kb)
+            parts = [p.strip() for p in text.split("|")]
+            uname, title, url = parts[0], parts[1], parts[2]
+            DB["channels"].append({"username": uname, "title": title, "url": url})
+            save()
+            await update.message.reply_text(f"✅ Kanal qo'shildi: {title}")
+        except Exception:
+            await update.message.reply_text("❌ Format xato. Qayta urinib ko'ring.")
+        context.user_data.pop("admin_state")
+        return True
+
+    if state == "post_channel_code":
+        code = text.upper()
+        if code not in DB["movies"]:
+            await update.message.reply_text("❌ Bunday kod yo'q.")
+            context.user_data.pop("admin_state")
+            return True
+        context.user_data["post_code"]   = code
+        context.user_data["admin_state"] = "post_channel_target"
+        await update.message.reply_text("📢 Kanal username ni kiriting (masalan @mychannel):")
+        return True
+
+    if state == "post_channel_target":
+        channel  = text
+        code     = context.user_data.get("post_code")
+        movie    = DB["movies"].get(code, {})
+        bot_me   = await context.bot.get_me()
+        markup   = channel_post_kb(bot_me.username, code)
+        caption  = (
+            f"🎬 <b>{movie.get('title', code)}</b>\n\n"
+            f"📺 Qismlar soni: <b>{len(movie.get('episodes', []))}</b>\n\n"
+            f"👇 Tomosha qilish uchun tugmani bosing!"
+        )
+        poster = movie.get("poster_file_id")
+        try:
+            if poster:
+                await context.bot.send_photo(channel, poster, caption=caption,
+                    parse_mode="HTML", reply_markup=markup)
             else:
                 await context.bot.send_message(channel, caption,
-                    parse_mode="HTML", reply_markup=kb)
-            await update.message.reply_text("✅ Kanalga yuborildi!")
+                    parse_mode="HTML", reply_markup=markup)
+            await update.message.reply_text("✅ Post yuborildi!")
         except Exception as e:
             await update.message.reply_text(f"❌ Xato: {e}")
-        ud.pop("admin_state", None)
+        context.user_data.pop("admin_state")
         return True
+
+    if state == "set_install":
+        return False   # Media handler hal qiladi
 
     return False
 
-# ═══════════════════════ /delch ═══════════════════════════
+# ══════════════════ MEDIA HANDLER (Admin) ═════════════════
+async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user  = update.effective_user
+    uid   = user.id
+    msg   = update.message
+    state = context.user_data.get("admin_state")
 
-async def delch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+    # ── Kino poster ──
+    if uid == ADMIN_ID and state == "add_movie_poster":
+        code = context.user_data.get("new_movie_code2")
+        if msg.photo:
+            DB["movies"][code]["poster_file_id"] = msg.photo[-1].file_id
+            save()
+            context.user_data.pop("admin_state")
+            context.user_data.pop("new_movie_code2", None)
+            await msg.reply_text(f"✅ Poster saqlandi!")
         return
-    try:
-        i       = int(context.args[0]) - 1
-        removed = DB["channels"].pop(i)
+
+    # ── Qism video ──
+    if uid == ADMIN_ID and state == "add_ep_video":
+        code = context.user_data.get("ep_movie_code")
+        if msg.video:
+            DB["movies"][code]["episodes"].append(msg.video.file_id)
+            save()
+            ep_num = len(DB["movies"][code]["episodes"])
+            context.user_data.pop("admin_state")
+            await msg.reply_text(f"✅ {ep_num}-qism saqlandi!")
+        return
+
+    # ── Ilova fayl/video ──
+    if uid == ADMIN_ID and state == "set_install":
+        if msg.video:
+            DB["settings"]["install_video_id"] = msg.video.file_id
+            save()
+            context.user_data.pop("admin_state")
+            await msg.reply_text("✅ O'rnatish videosi saqlandi!")
+        elif msg.document:
+            DB["settings"]["install_file_id"] = msg.document.file_id
+            save()
+            context.user_data.pop("admin_state")
+            await msg.reply_text("✅ O'rnatish fayli saqlandi!")
+        return
+
+    # ── Foydalanuvchi cheki ──
+    if context.user_data.get("awaiting_check") and msg.photo:
+        pay_info = context.user_data.pop("awaiting_check")
+        pid = f"{uid}_{pay_info['code']}_{pay_info['ep']}_{int(time.time())}"
+        DB["pending_payments"][pid] = {
+            "user_id": uid, "code": pay_info["code"],
+            "ep": pay_info["ep"], "price": pay_info["price"], "status": "pending"
+        }
         save()
-        await update.message.reply_text(f"✅ O'chirildi: {removed['title']}")
-    except Exception:
-        await update.message.reply_text("Format: /delch 1")
-
-# ════════════════ BOT COMMANDS ════════════════════════════
-
-async def set_commands(app):
-    await app.bot.set_my_commands([
-        BotCommand("start", "🚀 Botni ishga tushirish"),
-        BotCommand("help",  "🆘 Yordam"),
-    ])
-
-# ════════════════ HEALTH CHECK ════════════════════════════
-
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b"OK - Kino Bot ishlayapti")
-    def log_message(self, *a):
+        cap = (
+            f"💳 <b>To'lov cheki</b>\n"
+            f"👤 {user.full_name} (@{user.username or '-'})\n"
+            f"🆔 <code>{uid}</code>\n"
+            f"🎬 Kino: <b>{pay_info['code']}</b>\n"
+            f"🎞 Qism: <b>{pay_info['ep']}</b>\n"
+            f"💰 Narx: <b>{pay_info['price']} so'm</b>"
+        )
+        await context.bot.send_photo(ADMIN_ID, msg.photo[-1].file_id,
+            caption=cap, parse_mode="HTML",
+            reply_markup=payment_admin_kb(pid))
+        await msg.reply_text("✅ Chek adminga yuborildi! Tasdiqlanishini kuting.")
         return
 
-def start_health_server():
-    port = int(os.environ.get("PORT", "8080"))
-    try:
-        server = HTTPServer(("0.0.0.0", port), _HealthHandler)
-        logger.info(f"🌐 Health server :{port}")
-        server.serve_forever()
-    except Exception as e:
-        logger.error(f"Health server: {e}")
+    # ── Yordam xabari (rasm/video) ──
+    if context.user_data.pop("awaiting_help", False):
+        cap = (f"🆘 <b>Yordam so'rovi</b>\n"
+               f"👤 {user.full_name} (@{user.username or '-'})\n"
+               f"🆔 <code>{uid}</code>\n\n")
+        if msg.photo:
+            await context.bot.send_photo(ADMIN_ID, msg.photo[-1].file_id,
+                caption=cap, parse_mode="HTML",
+                reply_markup=reply_admin_kb(uid))
+        elif msg.video:
+            await context.bot.send_video(ADMIN_ID, msg.video.file_id,
+                caption=cap, parse_mode="HTML",
+                reply_markup=reply_admin_kb(uid))
+        await msg.reply_text("✅ Xabaringiz adminga yuborildi!")
+        return
+
+    # ── Admin reply (rasm/video) ──
+    if uid == ADMIN_ID and "reply_to" in context.user_data:
+        target = context.user_data.pop("reply_to")
+        try:
+            if msg.photo:
+                await context.bot.send_photo(target, msg.photo[-1].file_id,
+                    caption="✉️ <b>Admin javobi</b>", parse_mode="HTML")
+            elif msg.video:
+                await context.bot.send_video(target, msg.video.file_id,
+                    caption="✉️ <b>Admin javobi</b>", parse_mode="HTML")
+            await msg.reply_text("✅ Yuborildi!")
+        except Exception as e:
+            await msg.reply_text(f"❌ Xato: {e}")
 
 # ═══════════════════════ MAIN ═════════════════════════════
-
-async def post_init_hook(app):
-    try:
-        await app.bot.delete_webhook(drop_pending_updates=True)
-        logger.info("🧹 Webhook o'chirildi")
-    except Exception as e:
-        logger.warning(f"delete_webhook: {e}")
-    await set_commands(app)
-    save()
-
 def main():
-    threading.Thread(target=start_health_server, daemon=True).start()
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init_hook).build()
+    app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help",  handle_help))
-    app.add_handler(CommandHandler("delch", delch))
-
-    app.add_handler(CallbackQueryHandler(cb_check_sub, pattern="^check_sub$"))
-    app.add_handler(CallbackQueryHandler(cb_episode,   pattern="^ep\\|"))
-    app.add_handler(CallbackQueryHandler(cb_payment,   pattern="^(pay_ok|pay_no)\\|"))
-    app.add_handler(CallbackQueryHandler(cb_reply,     pattern="^reply\\|"))
-
+    app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(
         filters.PHOTO | filters.VIDEO | filters.Document.ALL, media_handler))
 
-    logger.info("🤖 Bot ishga tushdi!")
-
-    while True:
-        try:
-            app.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True,
-                close_loop=False,
-                stop_signals=None,
-            )
-            break
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
-            msg = str(e)
-            if "Conflict" in msg or "terminated by other getUpdates" in msg:
-                logger.warning("⚠️ Boshqa instance. 30s kutamiz...")
-                try:
-                    import asyncio as _aio
-                    _aio.run(app.bot.delete_webhook(drop_pending_updates=True))
-                except Exception:
-                    pass
-                time.sleep(30)
-                continue
-            logger.error(f"❌ Xato: {e}. 10s kutamiz...")
-            time.sleep(10)
-            continue
-
-    try:
-        save()
-    except Exception as e:
-        logger.error(f"Save xato: {e}")
+    logger.info("🚀 Bot ishga tushdi!")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
