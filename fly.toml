@@ -1,0 +1,27 @@
+# Fly.io konfiguratsiyasi - Kino Bot
+# Ishga tushirish:
+#   flyctl launch --no-deploy
+#   flyctl scale count 1            # MUHIM: faqat 1 ta machine bo'lsin (Conflict xatosini oldini oladi)
+#   flyctl deploy
+app = "kino-bot"
+primary_region = "fra"
+
+[build]
+
+[env]
+  PYTHONUNBUFFERED = "1"
+  PORT = "8080"
+
+# Bot polling ishlatadi, lekin Fly health check uchun kichik HTTP server ochamiz (bot.py ichida)
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1
