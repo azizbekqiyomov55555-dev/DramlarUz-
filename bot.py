@@ -31,7 +31,7 @@ from telegram.ext import (
 )
 
 # ===================== 🔧 SOZLAMALAR =====================
-BOT_TOKEN = "8655776547:AAEUwAvt_XTEC_5kHy2tsdZZ7Pyo8tkSQv4"
+BOT_TOKEN = "8622992113:AAHif8dJz3eq_Zm8PTafxpSiNsEqE5VmoMc"
 ADMIN_ID = 8537782289
 
 JSONBIN_API_KEY = "$2a$10$mQZC26SFNwuUJbIo3fANVO3eiIMW4jWdJTva4/6tBlESt4AAde.mi"
