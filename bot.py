@@ -27,7 +27,6 @@ JSONBIN_BIN_ID  = "69cc43a2856a682189e936f0"
 JSONBIN_URL     = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
 
 # ═══════════════ DEFAULT PREMIUM EMOJI IDlar ══════════════
-# DB da saqlanmasa, shu default IDlar ishlatiladi
 DEFAULT_PE = {
     "film":    "5374062524014462236",  # 🎬
     "search":  "5373141891321699086",  # 🔍
@@ -46,9 +45,15 @@ DEFAULT_PE = {
     "check":   "5373141891321699086",  # ✅
     "reply":   "5373141891321699086",  # ✉️
     "watch":   "5373141891321699086",  # 🎬
+    "emoji":   "5373141891321699086",  # 🎭
+    "channel": "5373141891321699086",  # 📢
+    "price":   "5361540739737993513",  # 💰
+    "admin":   "5368324170671202286",  # 👑
+    "back":    "5373141891321699086",  # ⬅️
+    "close":   "5373141891321699086",  # ✅
+    "reset":   "5361540739737993513",  # 🔄
 }
 
-# Emoji kalitlarining o'qilishi uchun label lari
 PE_LABELS = {
     "film":    "🎬 Kino (film)",
     "search":  "🔍 Qidirish (search)",
@@ -67,6 +72,13 @@ PE_LABELS = {
     "check":   "✅ Tasdiqlash (check)",
     "reply":   "✉️ Javob (reply)",
     "watch":   "🎬 Tomosha (watch)",
+    "emoji":   "🎭 Emoji (emoji)",
+    "channel": "📢 Kanal (channel)",
+    "price":   "💰 Narx (price)",
+    "admin":   "👑 Admin (admin)",
+    "back":    "⬅️ Orqaga (back)",
+    "close":   "✅ Yopish (close)",
+    "reset":   "🔄 Tiklash (reset)",
 }
 
 # ═══════════════════════ LOGGING ══════════════════════════
@@ -85,7 +97,7 @@ DEFAULT_DB = {
     "pending_payments": {},
     "settings":         {"install_file_id": None, "install_video_id": None},
     "stats":            {"total_views": 0},
-    "emoji_ids":        {},   # ← Admin o'zgartirgan emoji IDlar shu yerda
+    "emoji_ids":        {},
 }
 
 def db_load():
@@ -132,11 +144,6 @@ def save():
 
 # ═══════════════════ EMOJI ID OLISH ═══════════════════════
 def pe(key: str) -> str:
-    """
-    Emoji ID ni DB dan oladi.
-    Agar admin o'zgartirgan bo'lsa — o'zgartirilganini,
-    aks holda DEFAULT ni qaytaradi.
-    """
     return DB.get("emoji_ids", {}).get(key) or DEFAULT_PE.get(key, "")
 
 # ═══════════════════ TUGMA YORDAMCHISI ════════════════════
@@ -144,24 +151,34 @@ def ibtn(text, data=None, url=None, style=None, emoji_key=None):
     """
     InlineKeyboardButton — Bot API 9.4 rangli + premium emoji.
     style:     'primary'(ko'k) | 'success'(yashil) | 'danger'(qizil)
-    emoji_key: PE lug'atidagi kalit (masalan 'play', 'lock', 'check')
+    emoji_key: PE lug'atidagi kalit
     """
     kwargs = {"text": text}
-    if data: kwargs["callback_data"] = data
-    if url:  kwargs["url"] = url
+    if data:
+        kwargs["callback_data"] = data
+    if url:
+        kwargs["url"] = url
     btn = InlineKeyboardButton(**kwargs)
     if style:
-        try: btn.style = style
-        except Exception: pass
+        try:
+            btn.style = style
+        except Exception:
+            pass
     if emoji_key:
         eid = pe(emoji_key)
         if eid:
-            try: btn.icon_custom_emoji_id = eid
-            except Exception: pass
+            try:
+                btn.icon_custom_emoji_id = eid
+            except Exception:
+                pass
     return btn
 
 # ═══════════════════ REPLY KLAVIATURALAR ══════════════════
 def main_menu_kb():
+    """
+    Foydalanuvchi uchun asosiy menyu.
+    Kino qidirish tugmasi YO'Q — faqat raqam yuborilsa kino chiqadi.
+    """
     kb = [
         [KeyboardButton("🆘 Yordam"),
          KeyboardButton("📥 Ilovani o'rnatish")],
@@ -178,7 +195,7 @@ def admin_menu_kb():
          KeyboardButton("🔒 Majburiy kanal")],
         [KeyboardButton("💳 Karta raqami"),
          KeyboardButton("📲 Ilova fayl/video")],
-        [KeyboardButton("🎭 Emoji sozlamalari")],   # ← YANGI TUGMA
+        [KeyboardButton("🎭 Emoji sozlamalari")],
         [KeyboardButton("🏠 Asosiy menyu")],
     ]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
@@ -240,12 +257,38 @@ def reply_admin_kb(uid):
              style="primary", emoji_key="reply"),
     ]])
 
+# ── Statistika inline KB ──
+def stats_kb():
+    return InlineKeyboardMarkup([[
+        ibtn("🔄 Yangilash", data="refresh_stats",
+             style="primary", emoji_key="stats"),
+    ]])
+
+# ── Kino qo'shildi KB ──
+def movie_added_kb(code):
+    return InlineKeyboardMarkup([[
+        ibtn("📹 Qism qo'shish", data=f"quick_add_ep|{code}",
+             style="success", emoji_key="add"),
+        ibtn("💰 Narx belgilash", data=f"quick_price|{code}",
+             style="primary", emoji_key="price"),
+    ]])
+
+# ── To'lov yuborildi KB (foydalanuvchi uchun) ──
+def payment_sent_kb():
+    return InlineKeyboardMarkup([[
+        ibtn("⏳ Tasdiqlanishini kuting", data="waiting_confirm",
+             style="primary", emoji_key="check"),
+    ]])
+
+# ── Yordam KB ──
+def help_kb():
+    return InlineKeyboardMarkup([[
+        ibtn("🏠 Bosh menyu", data="go_home",
+             style="success", emoji_key="home"),
+    ]])
+
 # ══════════════ EMOJI SOZLAMALARI KLAVIATURASI ═════════════
 def emoji_list_kb():
-    """
-    Har bir emoji kaliti uchun inline tugma.
-    Joriy emoji ID ning oxirgi 6 raqami ham ko'rsatiladi.
-    """
     kb = []
     keys = list(PE_LABELS.keys())
     for i in range(0, len(keys), 2):
@@ -254,19 +297,23 @@ def emoji_list_kb():
             current = DB.get("emoji_ids", {}).get(key) or DEFAULT_PE.get(key, "")
             short   = f"…{current[-6:]}" if current else "yo'q"
             label   = f"{PE_LABELS[key]}  [{short}]"
-            row.append(ibtn(label, data=f"emoji_edit|{key}"))
+            row.append(ibtn(label, data=f"emoji_edit|{key}",
+                            style="primary", emoji_key="emoji"))
         kb.append(row)
-    kb.append([ibtn("🔄 Hammasini tiklash", data="emoji_reset_all", style="danger")])
-    kb.append([ibtn("✅ Yopish", data="emoji_close", style="success")])
+    kb.append([ibtn("🔄 Hammasini tiklash", data="emoji_reset_all",
+                    style="danger", emoji_key="reset")])
+    kb.append([ibtn("✅ Yopish", data="emoji_close",
+                    style="success", emoji_key="close")])
     return InlineKeyboardMarkup(kb)
 
 def emoji_single_kb(key):
-    """Bitta emoji tahrirlash oynasining tugmalari."""
     current = DB.get("emoji_ids", {}).get(key) or DEFAULT_PE.get(key, "")
     default = DEFAULT_PE.get(key, "")
     kb = [
-        [ibtn("🔄 Defaultga qaytarish", data=f"emoji_reset|{key}", style="primary")],
-        [ibtn("⬅️ Orqaga", data="emoji_back", style="success")],
+        [ibtn("🔄 Defaultga qaytarish", data=f"emoji_reset|{key}",
+              style="danger", emoji_key="reset")],
+        [ibtn("⬅️ Orqaga", data="emoji_back",
+              style="success", emoji_key="back")],
     ]
     return InlineKeyboardMarkup(kb), current, default
 
@@ -365,7 +412,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hello = (
         f"👋 Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
         f"🎬 <b>Kino botga xush kelibsiz!</b>\n\n"
-        f"📥 Kino <b>kodini</b> yuboring — video darhol chiqadi.\n\n"
+        f"🔢 Kino <b>raqamini</b> yuboring — video darhol chiqadi.\n\n"
         f"👇 Quyidagi tugmalardan foydalaning:"
     )
     await update.message.reply_text(hello, parse_mode="HTML",
@@ -380,7 +427,6 @@ async def cb_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = q.data
     await q.answer()
 
-    # ── Ro'yxatni ko'rsat ──
     if data == "emoji_back":
         await q.edit_message_text(
             "🎭 <b>Emoji sozlamalari</b>\n\n"
@@ -390,12 +436,10 @@ async def cb_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=emoji_list_kb())
         return
 
-    # ── Yopish ──
     if data == "emoji_close":
         await q.edit_message_text("✅ Emoji sozlamalari yopildi.")
         return
 
-    # ── Hammasini default ga qaytarish ──
     if data == "emoji_reset_all":
         DB["emoji_ids"] = {}
         save()
@@ -405,7 +449,6 @@ async def cb_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=emoji_list_kb())
         return
 
-    # ── Bitta default ga qaytarish ──
     if data.startswith("emoji_reset|"):
         key = data.split("|")[1]
         DB["emoji_ids"].pop(key, None)
@@ -417,7 +460,6 @@ async def cb_emoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML", reply_markup=markup)
         return
 
-    # ── Emoji tahrirlash oynasi ──
     if data.startswith("emoji_edit|"):
         key = data.split("|")[1]
         markup, current, default = emoji_single_kb(key)
@@ -446,7 +488,7 @@ async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await context.bot.send_message(q.from_user.id,
             f"👋 Xush kelibsiz, <b>{q.from_user.full_name}</b>!\n"
-            f"📥 Kino kodini yuboring.",
+            f"🔢 Kino raqamini yuboring.",
             parse_mode="HTML", reply_markup=main_menu_kb())
 
 async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -477,7 +519,8 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"To'lov qiling va chek rasmini yuboring 📸"
         )
         context.user_data["awaiting_check"] = {"code": code, "ep": ep, "price": price}
-        await q.message.reply_text(txt, parse_mode="HTML")
+        await q.message.reply_text(txt, parse_mode="HTML",
+            reply_markup=payment_sent_kb())
         return
 
     idx = int(ep) - 1
@@ -569,6 +612,31 @@ async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✍️ <code>{uid}</code> ga xabar yozing (matn/rasm/video).",
         parse_mode="HTML")
 
+async def cb_refresh_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer("📊 Yangilandi!")
+    u = len(DB.get("users", {}))
+    m = len(DB.get("movies", {}))
+    v = DB.get("stats", {}).get("total_views", 0)
+    await q.edit_message_text(
+        f"📊 <b>Statistika</b>\n\n"
+        f"👥 Foydalanuvchilar: <b>{u}</b>\n"
+        f"🎬 Kinolar: <b>{m}</b>\n"
+        f"👁 Jami ko'rishlar: <b>{v}</b>",
+        parse_mode="HTML",
+        reply_markup=stats_kb())
+
+async def cb_go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    await q.edit_message_reply_markup(reply_markup=None)
+    await context.bot.send_message(q.from_user.id,
+        "🏠 Bosh menyu", reply_markup=main_menu_kb())
+
+async def cb_waiting_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer("⏳ Admin ko'rib chiqmoqda, sabrli bo'ling!", show_alert=True)
+
 # ══════════════════ MASTER CALLBACK HANDLER ═══════════════
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
@@ -581,8 +649,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cb_payment(update, context)
     elif data.startswith("reply|"):
         await cb_reply(update, context)
-    elif data.startswith("emoji_") or data.startswith("emoji_edit|"):
-        # Faqat admin foydalana oladi
+    elif data == "refresh_stats":
+        if update.callback_query.from_user.id == ADMIN_ID:
+            await cb_refresh_stats(update, context)
+    elif data == "go_home":
+        await cb_go_home(update, context)
+    elif data == "waiting_confirm":
+        await cb_waiting_confirm(update, context)
+    elif (data.startswith("emoji_") or data.startswith("emoji_edit|")):
         if update.callback_query.from_user.id == ADMIN_ID:
             await cb_emoji(update, context)
         else:
@@ -593,7 +667,8 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✍️ Savol yoki muammoingizni <b>matn, rasm yoki video</b> ko'rinishida yuboring.\n"
         "Admin tez orada javob beradi.",
-        parse_mode="HTML")
+        parse_mode="HTML",
+        reply_markup=help_kb())
     context.user_data["awaiting_help"] = True
 
 # ═══════════════════ ILOVA O'RNATISH ══════════════════════
@@ -613,7 +688,6 @@ async def handle_install(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ═══════════════════ EMOJI SOZLAMALAR PANELI ══════════════
 async def show_emoji_panel(update: Update):
-    """Admin 🎭 Emoji sozlamalari tugmasini bosganda chiqadi."""
     await update.message.reply_text(
         "🎭 <b>Emoji sozlamalari</b>\n\n"
         "O'zgartirmoqchi bo'lgan emoji tugmasini tanlang.\n"
@@ -631,7 +705,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎬 Kino joylash", "➕ Qism qo'shish", "💰 Qismni pullik qilish",
         "📊 Statistika",   "📢 Kanalga post",  "🔒 Majburiy kanal",
         "💳 Karta raqami", "📲 Ilova fayl/video", "🏠 Asosiy menyu",
-        "🎭 Emoji sozlamalari",   # ← YANGI
+        "🎭 Emoji sozlamalari",
     )
     if uid == ADMIN_ID and text in ADMIN_BTNS:
         if text == "🎭 Emoji sozlamalari":
@@ -647,10 +721,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_install(update, context)
         return
 
-    # ── Emoji ID ni saqlash (admin tahrirlash rejimi) ──
+    # ── Emoji ID ni saqlash ──
     if uid == ADMIN_ID and context.user_data.get("editing_emoji_key"):
-        key      = context.user_data.pop("editing_emoji_key")
-        new_id   = text.strip()
+        key    = context.user_data.pop("editing_emoji_key")
+        new_id = text.strip()
         if not new_id.isdigit() or len(new_id) < 10:
             await update.message.reply_text(
                 "❌ Noto'g'ri ID format. Faqat raqamlardan iborat bo'lishi kerak.\n"
@@ -662,8 +736,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save()
         await update.message.reply_text(
             f"✅ <b>{PE_LABELS.get(key, key)}</b> emoji IDsi yangilandi!\n\n"
-            f"🆕 Yangi ID:\n<code>{new_id}</code>\n\n"
-            f"<i>Endi barcha yangi tugmalarda shu emoji ko'rinadi.</i>",
+            f"🆕 Yangi ID:\n<code>{new_id}</code>",
             parse_mode="HTML",
             reply_markup=emoji_list_kb())
         return
@@ -695,7 +768,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📸 Iltimos chek <b>rasmini</b> yuboring.", parse_mode="HTML")
         return
 
-    # Kino kodi
+    # ── Kino raqami / kodi ──
     code = text.upper().strip()
     if code in DB["movies"]:
         not_subbed = await check_subscription(uid, context.bot)
@@ -708,7 +781,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_movie_menu(update, context, code)
     else:
         await update.message.reply_text(
-            "❓ Kino kodi topilmadi.\n📥 To'g'ri kodni yuboring.")
+            "❓ Kino raqami topilmadi.\n🔢 To'g'ri raqamni yuboring.")
 
 # ════════════════════ ADMIN TUGMALARI ═════════════════════
 async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
@@ -725,7 +798,8 @@ async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE, text
             f"👥 Foydalanuvchilar: <b>{u}</b>\n"
             f"🎬 Kinolar: <b>{m}</b>\n"
             f"👁 Jami ko'rishlar: <b>{v}</b>",
-            parse_mode="HTML")
+            parse_mode="HTML",
+            reply_markup=stats_kb())
         return
     if text == "💳 Karta raqami":
         context.user_data["admin_state"] = "set_card"
@@ -736,7 +810,7 @@ async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE, text
         return
     if text == "🎬 Kino joylash":
         context.user_data["admin_state"] = "add_movie_code"
-        await update.message.reply_text("🎬 Kino kodini kiriting (masalan: AVATAR):")
+        await update.message.reply_text("🎬 Kino kodini kiriting (masalan: AVATAR yoki 001):")
         return
     if text == "➕ Qism qo'shish":
         context.user_data["admin_state"] = "add_ep_code"
@@ -788,7 +862,8 @@ async def admin_state_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.pop("new_movie_code", None)
         await update.message.reply_text(
             f"✅ <b>{text}</b> kinosi qo'shildi!\nKod: <code>{code}</code>",
-            parse_mode="HTML")
+            parse_mode="HTML",
+            reply_markup=movie_added_kb(code))
         return True
 
     if state == "add_ep_code":
@@ -814,7 +889,7 @@ async def admin_state_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return True
 
     if state == "set_price_ep":
-        context.user_data["price_ep"]   = text
+        context.user_data["price_ep"]    = text
         context.user_data["admin_state"] = "set_price_amount"
         await update.message.reply_text("💰 Narxini kiriting (so'mda):")
         return True
@@ -877,7 +952,7 @@ async def admin_state_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return True
 
     if state == "set_install":
-        return False   # Media handler hal qiladi
+        return False
 
     return False
 
@@ -888,7 +963,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg   = update.message
     state = context.user_data.get("admin_state")
 
-    # ── Kino poster ──
     if uid == ADMIN_ID and state == "add_movie_poster":
         code = context.user_data.get("new_movie_code2")
         if msg.photo:
@@ -899,7 +973,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text(f"✅ Poster saqlandi!")
         return
 
-    # ── Qism video ──
     if uid == ADMIN_ID and state == "add_ep_video":
         code = context.user_data.get("ep_movie_code")
         if msg.video:
@@ -910,7 +983,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text(f"✅ {ep_num}-qism saqlandi!")
         return
 
-    # ── Ilova fayl/video ──
     if uid == ADMIN_ID and state == "set_install":
         if msg.video:
             DB["settings"]["install_video_id"] = msg.video.file_id
@@ -924,7 +996,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.reply_text("✅ O'rnatish fayli saqlandi!")
         return
 
-    # ── Foydalanuvchi cheki ──
     if context.user_data.get("awaiting_check") and msg.photo:
         pay_info = context.user_data.pop("awaiting_check")
         pid = f"{uid}_{pay_info['code']}_{pay_info['ep']}_{int(time.time())}"
@@ -947,7 +1018,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("✅ Chek adminga yuborildi! Tasdiqlanishini kuting.")
         return
 
-    # ── Yordam xabari (rasm/video) ──
     if context.user_data.pop("awaiting_help", False):
         cap = (f"🆘 <b>Yordam so'rovi</b>\n"
                f"👤 {user.full_name} (@{user.username or '-'})\n"
@@ -963,7 +1033,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("✅ Xabaringiz adminga yuborildi!")
         return
 
-    # ── Admin reply (rasm/video) ──
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
