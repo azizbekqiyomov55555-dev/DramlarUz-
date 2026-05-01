@@ -14,7 +14,7 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes, filters,
 )
 
-BOT_TOKEN       = "8622992113:AAG1uq8e7ND5_AYqzr0YnBAuCgVDybui95o"
+BOT_TOKEN       = "8616963088:AAFE1tAr8n9W_Uvpq-wVgjrRC_RVv1Y6WVE"
 ADMIN_ID        = 8537782289
 JSONBIN_API_KEY = "$2a$10$mQZC26SFNwuUJbIo3fANVO3eiIMW4jWdJTva4/6tBlESt4AAde.mi"
 JSONBIN_BIN_ID  = "69cc43a2856a682189e936f0"
