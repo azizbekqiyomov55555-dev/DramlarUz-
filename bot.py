@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - TUZATILGAN VERSIYA (barcha tugmalar o'z vazifasini bajaradi)
+Kino Bot - TUZATILGAN VERSIYA v2
+TUZATISHLAR:
+1. emoji_menu rejimida tugmalar o'z vazifasini bajaradi
+2. Bir tugmaga ketma-ket emoji yuborganda to'planib boradi (2 ta = 2 ta emoji)
 """
 import logging, asyncio, json, time, re
 from datetime import datetime
@@ -92,7 +95,7 @@ DEFAULT_DB = {
     "btn_texts": {},
 }
 
-# Emoji ID lar faqat xotirada saqlanadi (JSONBin'ga yozilmaydi)
+# Emoji ID lar faqat xotirada saqlanadi
 EMOJI_IDS: dict = {}
 
 # ══════════════════════════════════════════════════════════
@@ -113,7 +116,6 @@ def db_load():
                         data[k] = json.loads(json.dumps(dv))
                     elif isinstance(dv, list) and not isinstance(data[k], list):
                         data[k] = json.loads(json.dumps(dv))
-                # Eski btn_emoji_ids ni DB'dan o'chiramiz (endi xotirada)
                 data.pop("btn_emoji_ids", None)
                 logger.info(f"Yuklandi: {len(data.get('users', {}))} user, {len(data.get('movies', {}))} kino")
                 return data
@@ -174,7 +176,16 @@ def is_only_emoji(text: str) -> bool:
     cleaned = EMOJI_RE.sub('', text).strip()
     return len(cleaned) == 0 and len(text.strip()) > 0
 
+def extract_emoji_prefix(text: str) -> str:
+    """Matnning boshidagi emoji prefixini qaytaradi"""
+    match = re.match(
+        r'^((?:[\U0001F000-\U0001FFFF\u2600-\u27BF\uFE00-\uFE0F\u200d\ufe0f]+\s*)+)',
+        text
+    )
+    return match.group(1).rstrip() if match else ""
+
 def strip_emoji_prefix(text: str) -> str:
+    """Matnning boshidagi emoji prefixini olib tashlaydi"""
     result = re.sub(
         r'^(?:[\U0001F000-\U0001FFFF\u2600-\u27BF\uFE00-\uFE0F\u200d\ufe0f]+\s*)+',
         '', text
@@ -187,6 +198,31 @@ def extract_custom_emoji_id(message) -> str | None:
     for entity in message.entities:
         if entity.type == "custom_emoji":
             return entity.custom_emoji_id
+    return None
+
+# ══════════════════════════════════════════════════════════
+# TUGMANI ANIQLASH — ASOSIY TUZATISH #1
+# emoji_menu rejimida bt() bilan o'zgartirilgan matnlar ham taniladi
+# ══════════════════════════════════════════════════════════
+
+def find_key_by_text(text: str) -> str | None:
+    """
+    Tugma matnidan key topadi.
+    Avval BTN_LABELS orqali, keyin hozirgi bt() qiymatlari orqali qidiradi.
+    """
+    # 1. BTN_LABELS dan to'g'ridan-to'g'ri
+    if text in LABEL_TO_KEY:
+        return LABEL_TO_KEY[text]
+
+    # 2. Hozirgi bt() qiymatlari orqali (o'zgartirilgan matnlar)
+    for key in BTN_LABELS:
+        current = bt(key)
+        if current == text:
+            return key
+        # Emoji prefixsiz solishtirish
+        if strip_emoji_prefix(current) == strip_emoji_prefix(text) and strip_emoji_prefix(text):
+            return key
+
     return None
 
 # ══════════════════════════════════════════════════════════
@@ -382,7 +418,6 @@ async def send_movie_menu(src, context, code):
         logger.error(f"send_movie_menu: {e}")
 
 def clear_admin_state(context):
-    """Admin barcha holatlarini tozalaydi"""
     for key in ["admin_state", "new_movie_code", "ep_movie_code",
                 "price_movie_code", "price_ep", "post_code",
                 "reply_to", "awaiting_help", "awaiting_check",
@@ -425,7 +460,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sm(context.bot, user.id, hello, main_menu_kb(is_admin=is_admin))
 
 # ══════════════════════════════════════════════════════════
-# CALLBACK HANDLER — MARKAZIY
+# CALLBACK HANDLER
 # ══════════════════════════════════════════════════════════
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -683,8 +718,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = user.id
     text = (update.message.text or "").strip()
 
-    # ── 1. BIRINCHI: editing_btn_key holati (emoji/matn tahrirlash) ──
-    # Bu HAMMA NARSADAN OLDIN tekshirilishi kerak!
+    # ── 1. editing_btn_key holati ──
     if uid == ADMIN_ID and context.user_data.get("editing_btn_key"):
         key = context.user_data.pop("editing_btn_key")
 
@@ -693,39 +727,56 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["editing_btn_key"] = key
             return
 
-        # Custom emoji entity tekshirish
         custom_emoji_id = extract_custom_emoji_id(update.message)
+
+        # Hozirgi tugma matnidagi label (emoji prefixsiz) va emoji prefix
         existing = DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
-        label = strip_emoji_prefix(existing)
-        if not label:
-            label = DEFAULT_BTN.get(key, "")
+        existing_label = strip_emoji_prefix(existing)
+        existing_emoji_prefix = extract_emoji_prefix(existing)
+        if not existing_label:
+            existing_label = DEFAULT_BTN.get(key, "")
 
         if custom_emoji_id:
-            # Custom emoji yuborildi — faqat xotirada saqlanadi (JSONBin'ga yozilmaydi)
-            new_text = label
+            # Custom emoji — EMOJI_IDS ga qo'shiladi, matn o'zgarmaydi
+            new_text = existing_label
             EMOJI_IDS[key] = custom_emoji_id
+            eid_info = f"\nCustom emoji ID: <code>{custom_emoji_id}</code>"
         elif is_only_emoji(text):
-            # Faqat oddiy emoji — prefiks sifatida qo'shiladi
-            new_text = f"{text} {label}"
+            # ══ ASOSIY TUZATISH #2: Ko'p emoji to'plash ══
+            # Agar avval ham oddiy emoji prefix bo'lsa, yangi emoji QO'SHILADI
+            if existing_emoji_prefix:
+                # Mavjud prefixga yangi emoji qo'shiladi
+                new_emoji_prefix = existing_emoji_prefix + text
+            else:
+                # Birinchi marta emoji qo'yilmoqda
+                new_emoji_prefix = text
+            new_text = f"{new_emoji_prefix} {existing_label}"
             EMOJI_IDS.pop(key, None)
+            eid_info = ""
         else:
             # Oddiy matn yoki emoji+matn — to'liq yangilanadi
             new_text = text
             EMOJI_IDS.pop(key, None)
+            eid_info = ""
 
         DB.setdefault("btn_texts", {})[key] = new_text
         save()
 
         eid = get_eid(key)
-        eid_info = f"\nCustom emoji ID: <code>{eid}</code>" if eid else ""
+        if eid:
+            eid_info = f"\nCustom emoji ID: <code>{eid}</code>"
+
         await sm(context.bot, uid,
             f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n"
-            f"Ko'rinish: <code>{new_text}</code>{eid_info}")
+            f"Ko'rinish: <code>{new_text}</code>{eid_info}\n\n"
+            f"Yana emoji qo'shish uchun emoji yuboring yoki boshqa tugmani tanlang 👇")
         context.user_data["emoji_menu"] = True
+
+        # editing_btn_key ni saqlab qolmaymiz — tugma yana tanlanishi kerak
         await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
         return
 
-    # ── 2. Emoji menyu rejimi (tugma tanlash) ──
+    # ── 2. Emoji menyu rejimi — TUZATILGAN ──
     if uid == ADMIN_ID and context.user_data.get("emoji_menu"):
         if text == "⬅️ Orqaga":
             context.user_data.pop("emoji_menu", None)
@@ -740,23 +791,29 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, "✅ Barcha tugmalar tiklandi!", emoji_menu_kb())
             return
 
-        key = LABEL_TO_KEY.get(text)
+        # ══ ASOSIY TUZATISH #1: find_key_by_text ishlatiladi ══
+        # BTN_LABELS ham, hozirgi bt() qiymatlari ham tekshiriladi
+        key = find_key_by_text(text)
         if key:
             cur = DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
             eid = get_eid(key)
+            cur_emoji = extract_emoji_prefix(cur)
             eid_info = f"\nCustom emoji ID: <code>{eid}</code>" if eid else ""
+            emoji_info = f"\nHozirgi emoji: <code>{cur_emoji}</code>" if cur_emoji else ""
+
             context.user_data["editing_btn_key"] = key
             await sm(context.bot, uid,
                 f"<b>{BTN_LABELS.get(key, key)}</b>\n\n"
-                f"Hozirgi matn: <code>{cur}</code>{eid_info}\n\n"
+                f"Hozirgi matn: <code>{cur}</code>{eid_info}{emoji_info}\n\n"
                 f"Yuboring:\n"
-                f"• Faqat emoji → prefiks qo'yiladi\n"
+                f"• Faqat emoji → qo'shiladi (ketma-ket yuborsangiz ko'payadi)\n"
                 f"• Emoji + matn → to'liq yangilanadi\n"
-                f"• Custom emoji → icon sifatida\n"
-                f"• Faqat matn → emoji o'chadi",
+                f"• Custom emoji → icon sifatida (matn o'zgarmaydi)\n"
+                f"• Faqat matn → barcha emoji o'chadi",
                 emoji_single_action_kb(key))
             return
-        # Taniylmagan tugma — menyuda qolsin
+
+        # Tanilmagan tugma — menyuda qolsin
         return
 
     # ── 3. Admin reply_to holati ──
@@ -778,7 +835,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if uid == ADMIN_ID and text in all_admin_btns:
         if text == bt("emoji_soz"):
-            # Avval barcha boshqa holatlarni tozalaymiz
             context.user_data.pop("admin_state", None)
             context.user_data.pop("editing_btn_key", None)
             context.user_data.pop("reply_to", None)
@@ -788,7 +844,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "O'zgartirmoqchi bo'lgan tugmani pastdan tanlang 👇",
                 emoji_menu_kb())
             return
-        # Boshqa admin tugmalar uchun emoji_menu ni o'chirish
         context.user_data.pop("emoji_menu", None)
         context.user_data.pop("editing_btn_key", None)
         await admin_buttons(update, context, text)
@@ -816,13 +871,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML")
         return
 
-    # ── 6. Admin holat handler (matn orqali) ──
+    # ── 6. Admin holat handler ──
     if uid == ADMIN_ID:
         handled = await admin_state_handler(update, context, text)
         if handled:
             return
 
-    # ── 7. Yordam so'rovi (foydalanuvchi xabari) ──
+    # ── 7. Yordam so'rovi ──
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         cap = (f"<b>Yordam so'rovi</b>\n{user.full_name} (@{user.username or '-'})\n"
@@ -1058,11 +1113,21 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     context.user_data.pop("editing_btn_key")
+
+    # Hozirgi prefix va label
     existing = DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
-    label = strip_emoji_prefix(existing)
-    if not label:
-        label = DEFAULT_BTN.get(key, "")
-    new_text = f"{emoji} {label}"
+    existing_label = strip_emoji_prefix(existing)
+    existing_emoji_prefix = extract_emoji_prefix(existing)
+    if not existing_label:
+        existing_label = DEFAULT_BTN.get(key, "")
+
+    # Sticker emojisi ham to'planib boradi
+    if existing_emoji_prefix:
+        new_emoji_prefix = existing_emoji_prefix + emoji
+    else:
+        new_emoji_prefix = emoji
+
+    new_text = f"{new_emoji_prefix} {existing_label}"
     DB.setdefault("btn_texts", {})[key] = new_text
     EMOJI_IDS.pop(key, None)
     save()
@@ -1083,7 +1148,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     state = context.user_data.get("admin_state")
 
-    # Admin: qism video qo'shish
     if uid == ADMIN_ID and state == "add_ep_video":
         code = context.user_data.get("ep_movie_code")
         if msg.video:
@@ -1100,7 +1164,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, "⚠️ Faqat video yuboring!")
         return
 
-    # Admin: ilova fayl/video saqlash
     if uid == ADMIN_ID and state == "set_install":
         if msg.video:
             DB["settings"]["install_video_id"] = msg.video.file_id
@@ -1116,7 +1179,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, "⚠️ Video yoki fayl yuboring!")
         return
 
-    # Foydalanuvchi: to'lov cheki (rasm)
     if context.user_data.get("awaiting_check") and msg.photo:
         pay_info = context.user_data.pop("awaiting_check")
         pid = f"{uid}_{pay_info['code']}_{pay_info['ep']}_{int(time.time())}"
@@ -1132,7 +1194,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Chek adminga yuborildi! Tasdiqlanishini kuting.")
         return
 
-    # Foydalanuvchi: yordam so'rovi (rasm yoki video)
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         cap = (f"<b>Yordam so'rovi</b>\n{user.full_name} (@{user.username or '-'})\n"
@@ -1144,7 +1205,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Xabaringiz adminga yuborildi!")
         return
 
-    # Admin: foydalanuvchiga javob (rasm yoki video)
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
