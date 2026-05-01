@@ -17,12 +17,13 @@ from telegram.ext import (
 # ====== KONFIGURATSIYA (Environment Variables) ======
 # Quyidagi qiymatlarni .env fayldan yoki tizim env dan o'qing.
 # Fly.io: `fly secrets set BOT_TOKEN=... ADMIN_ID=... JSONBIN_API_KEY=... JSONBIN_BIN_ID=...`
-BOT_TOKEN       = "8751663993:AAHJ7MX7se4as8glwKdQJw5q9usLFZpT_K0"
-ADMIN_ID = "8537782289"
-JSONBIN_API_KEY = "$2a$10$faisVmzQc8X6wmg8i7BaSucWQgJu.WEXjnGdLRBdB35ochrrF2uam"
-JSONBIN_BIN_ID  = "69f4ec86856a682189960cad"
-JSONBIN_URL     = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
+import os
 
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+JSONBIN_API_KEY = os.getenv("JSONBIN_API_KEY")
+JSONBIN_BIN_ID = os.getenv("JSONBIN_BIN_ID")
+JSONBIN_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
 if not BOT_TOKEN or not ADMIN_ID or not JSONBIN_API_KEY or not JSONBIN_BIN_ID:
     raise SystemExit(
         "XATOLIK: Quyidagi environment variable lar o'rnatilmagan:\n"
