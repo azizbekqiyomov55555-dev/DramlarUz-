@@ -162,35 +162,43 @@ def get_eid(key):
 # EMOJI ANIQLASH YORDAMCHILAR
 # ══════════════════════════════════════════════════════════
 
-EMOJI_RE = re.compile(
-    r'[\U0001F000-\U0001FFFF'
-    r'\U00002600-\U000027BF'
-    r'\U0000FE00-\U0000FE0F'
-    r'\U00020000-\U0002FA1F'
-    r'\u200d'
-    r'\ufe0f'
-    r']+'
+# Unicode emoji bloklari — keng qamrovli
+EMOJI_PATTERN = (
+    "[\U0001F300-\U0001F9FF"   # Misc Symbols, Emoticons, Transport, etc.
+    "\U0001FA00-\U0001FA6F"    # Chess, symbols
+    "\U0001FA70-\U0001FAFF"    # Symbols and Pictographs Extended-A
+    "\U00002600-\U000027BF"    # Misc symbols
+    "\U0000FE00-\U0000FE0F"    # Variation selectors
+    "\U0001F000-\U0001F02F"    # Mahjong
+    "\U0001F0A0-\U0001F0FF"    # Playing cards
+    "\U0001F100-\U0001F1FF"    # Enclosed alphanumeric supplement
+    "\U0001F200-\U0001F2FF"    # Enclosed ideographic supplement
+    "\U00002702-\U000027B0"
+    "\u200d\ufe0f\u20e3"       # ZWJ, variation selector, combining enclosing keycap
+    "]"
+)
+
+EMOJI_RE = re.compile(EMOJI_PATTERN + "+", re.UNICODE)
+
+# Matn boshidagi emoji prefix (bo'sh joy bilan) ni topuvchi pattern
+EMOJI_PREFIX_RE = re.compile(
+    r'^((?:' + EMOJI_PATTERN + r'+\s*)+)',
+    re.UNICODE
 )
 
 def is_only_emoji(text: str) -> bool:
+    """Matn faqat emojidan iboratmi?"""
     cleaned = EMOJI_RE.sub('', text).strip()
     return len(cleaned) == 0 and len(text.strip()) > 0
 
 def extract_emoji_prefix(text: str) -> str:
-    """Matnning boshidagi emoji prefixini qaytaradi"""
-    match = re.match(
-        r'^((?:[\U0001F000-\U0001FFFF\u2600-\u27BF\uFE00-\uFE0F\u200d\ufe0f]+\s*)+)',
-        text
-    )
+    """Matnning boshidagi emoji prefixini qaytaradi (bo'sh joysiz)"""
+    match = EMOJI_PREFIX_RE.match(text)
     return match.group(1).rstrip() if match else ""
 
 def strip_emoji_prefix(text: str) -> str:
     """Matnning boshidagi emoji prefixini olib tashlaydi"""
-    result = re.sub(
-        r'^(?:[\U0001F000-\U0001FFFF\u2600-\u27BF\uFE00-\uFE0F\u200d\ufe0f]+\s*)+',
-        '', text
-    ).strip()
-    return result
+    return EMOJI_PREFIX_RE.sub('', text).strip()
 
 def extract_custom_emoji_id(message) -> str | None:
     if not message.entities:
@@ -741,40 +749,52 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_text = existing_label
             EMOJI_IDS[key] = custom_emoji_id
             eid_info = f"\nCustom emoji ID: <code>{custom_emoji_id}</code>"
+            # Custom emoji qo'shilgandan keyin key qaytarilmaydi (bir marta ishlaydi)
+            DB.setdefault("btn_texts", {})[key] = new_text
+            save()
+            eid = get_eid(key)
+            await sm(context.bot, uid,
+                f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n"
+                f"Ko'rinish: <code>{new_text}</code>{eid_info}")
+            context.user_data["emoji_menu"] = True
+            await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
+            return
+
         elif is_only_emoji(text):
-            # ══ ASOSIY TUZATISH #2: Ko'p emoji to'plash ══
-            # Agar avval ham oddiy emoji prefix bo'lsa, yangi emoji QO'SHILADI
+            # ══ KO'P EMOJI TO'PLASH ══
+            # Mavjud prefixga yangi emoji QOSHILADI
             if existing_emoji_prefix:
-                # Mavjud prefixga yangi emoji qo'shiladi
                 new_emoji_prefix = existing_emoji_prefix + text
             else:
-                # Birinchi marta emoji qo'yilmoqda
                 new_emoji_prefix = text
             new_text = f"{new_emoji_prefix} {existing_label}"
             EMOJI_IDS.pop(key, None)
-            eid_info = ""
+
+            DB.setdefault("btn_texts", {})[key] = new_text
+            save()
+
+            await sm(context.bot, uid,
+                f"✅ Emoji qo'shildi!\n"
+                f"Ko'rinish: <code>{new_text}</code>\n\n"
+                f"Yana emoji yuboring (qo'shilaveradi) yoki boshqa tugmani tanlang 👇")
+            # editing_btn_key SAQLANIB QOLADI — ketma-ket emoji yuborish uchun
+            context.user_data["editing_btn_key"] = key
+            context.user_data["emoji_menu"] = True
+            return
+
         else:
             # Oddiy matn yoki emoji+matn — to'liq yangilanadi
             new_text = text
             EMOJI_IDS.pop(key, None)
-            eid_info = ""
+            DB.setdefault("btn_texts", {})[key] = new_text
+            save()
 
-        DB.setdefault("btn_texts", {})[key] = new_text
-        save()
-
-        eid = get_eid(key)
-        if eid:
-            eid_info = f"\nCustom emoji ID: <code>{eid}</code>"
-
-        await sm(context.bot, uid,
-            f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n"
-            f"Ko'rinish: <code>{new_text}</code>{eid_info}\n\n"
-            f"Yana emoji qo'shish uchun emoji yuboring yoki boshqa tugmani tanlang 👇")
-        context.user_data["emoji_menu"] = True
-
-        # editing_btn_key ni saqlab qolmaymiz — tugma yana tanlanishi kerak
-        await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
-        return
+            await sm(context.bot, uid,
+                f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n"
+                f"Ko'rinish: <code>{new_text}</code>")
+            context.user_data["emoji_menu"] = True
+            await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
+            return
 
     # ── 2. Emoji menyu rejimi — TUZATILGAN ──
     if uid == ADMIN_ID and context.user_data.get("emoji_menu"):
