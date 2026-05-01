@@ -36,7 +36,7 @@ DEFAULT_BTN = {
     "ilova":        "Ilova fayl/video",
     "emoji_soz":    "Emoji sozlamalari",
     "asosiy":       "Asosiy menyu",
-    "boshqarish":   "⚙️ Boshqarish",
+    "boshqarish":   "âš™ï¸ Boshqarish",
     "tekshir":      "Tekshirish",
     "tasdiq":       "Tasdiqlash",
     "bekor":        "Bekor qilish",
@@ -67,7 +67,7 @@ BTN_LABELS = {
     "ilova":        "Ilova fayl/video",
     "emoji_soz":    "Emoji sozlamalari",
     "asosiy":       "Asosiy menyu",
-    "boshqarish":   "⚙️ Boshqarish",
+    "boshqarish":   "âš™ï¸ Boshqarish",
     "tekshir":      "Tekshirish",
     "tasdiq":       "Tasdiqlash",
     "bekor":        "Bekor qilish",
@@ -101,9 +101,9 @@ BROADCAST_PENDING: dict = {}  # admin_id -> {msg_data, buttons}
 # Emoji ID lar faqat xotirada saqlanadi
 EMOJI_IDS: dict = {}
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # DB
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def db_load():
     for attempt in range(3):
@@ -139,7 +139,7 @@ def db_save(data):
                 },
                 data=json.dumps(data, ensure_ascii=False), timeout=20)
             if r.status_code == 200:
-                logger.info("DB saqlandi ✓")
+                logger.info("DB saqlandi âœ“")
                 return True
         except Exception as e:
             logger.error(f"DB save #{attempt+1}: {e}")
@@ -161,9 +161,9 @@ def bt(key):
 def get_eid(key):
     return EMOJI_IDS.get(key)
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # EMOJI ANIQLASH YORDAMCHILAR
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 EMOJI_RE = re.compile(
     r'[\U0001F000-\U0001FFFF'
@@ -203,10 +203,10 @@ def extract_custom_emoji_id(message) -> str | None:
             return entity.custom_emoji_id
     return None
 
-# ══════════════════════════════════════════════════════════
-# TUGMANI ANIQLASH — ASOSIY TUZATISH #1
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# TUGMANI ANIQLASH â€” ASOSIY TUZATISH #1
 # emoji_menu rejimida bt() bilan o'zgartirilgan matnlar ham taniladi
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def find_key_by_text(text: str) -> str | None:
     """
@@ -228,9 +228,9 @@ def find_key_by_text(text: str) -> str | None:
 
     return None
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # TUGMA YARATISH
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
     b = {"text": text}
@@ -252,9 +252,9 @@ def ikb(rows):
 def rkb(rows, resize=True):
     return {"keyboard": rows, "resize_keyboard": resize}
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # KLAVIATURALAR
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def main_menu_kb(is_admin=False):
     rows = [[
@@ -275,7 +275,7 @@ def admin_menu_kb():
          rbtn(bt("maj_kanal"),  style="danger",  emoji_id=get_eid("maj_kanal"))],
         [rbtn(bt("karta"),      style="success", emoji_id=get_eid("karta")),
          rbtn(bt("ilova"),      style="primary", emoji_id=get_eid("ilova"))],
-        [rbtn("📢 Barchaga xabar", style="danger")],
+        [rbtn("ðŸ“¢ Barchaga xabar", style="danger")],
         [rbtn(bt("emoji_soz"),  style="primary", emoji_id=get_eid("emoji_soz"))],
         [rbtn(bt("asosiy"),     style="success", emoji_id=get_eid("asosiy"))],
     ])
@@ -341,33 +341,33 @@ def emoji_menu_kb():
             label = BTN_LABELS.get(key, key)
             row.append(rbtn(label, style="primary", emoji_id=eid))
         rows.append(row)
-    rows.append([rbtn("🗑 Hammasini tiklash", style="danger")])
-    rows.append([rbtn("⬅️ Orqaga",            style="success")])
+    rows.append([rbtn("ðŸ—‘ Hammasini tiklash", style="danger")])
+    rows.append([rbtn("â¬…ï¸ Orqaga",            style="success")])
     return rkb(rows)
 
 def broadcast_confirm_kb():
     return ikb([
-        [ibtn("✅ Yuborish", data="broadcast_send", style="success"),
-         ibtn("➕ Tugma qo'shish", data="broadcast_add_btn", style="primary")],
-        [ibtn("❌ Bekor qilish", data="broadcast_cancel", style="danger")],
+        [ibtn("âœ… Yuborish", data="broadcast_send", style="success"),
+         ibtn("âž• Tugma qo'shish", data="broadcast_add_btn", style="primary")],
+        [ibtn("âŒ Bekor qilish", data="broadcast_cancel", style="danger")],
     ])
 
 def broadcast_preview_kb(buttons: list):
     rows = [[ibtn(b["text"], url=b["url"])] for b in buttons]
-    rows.append([ibtn("✅ Yuborish", data="broadcast_send", style="success"),
-                 ibtn("➕ Yana tugma", data="broadcast_add_btn", style="primary")])
-    rows.append([ibtn("❌ Bekor qilish", data="broadcast_cancel", style="danger")])
+    rows.append([ibtn("âœ… Yuborish", data="broadcast_send", style="success"),
+                 ibtn("âž• Yana tugma", data="broadcast_add_btn", style="primary")])
+    rows.append([ibtn("âŒ Bekor qilish", data="broadcast_cancel", style="danger")])
     return ikb(rows)
 
 
     return ikb([
-        [ibtn("🗑 Defaultga qaytarish", data=f"emoji_reset|{key}", style="danger")],
-        [ibtn("⬅️ Orqaga",              data="emoji_back",          style="success")],
+        [ibtn("ðŸ—‘ Defaultga qaytarish", data=f"emoji_reset|{key}", style="danger")],
+        [ibtn("â¬…ï¸ Orqaga",              data="emoji_back",          style="success")],
     ])
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # XABAR YUBORISH
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def sm(bot, chat_id, text, markup=None, pm="HTML"):
     kw = {"chat_id": chat_id, "text": text, "parse_mode": pm}
@@ -387,9 +387,9 @@ async def sv(bot, chat_id, video, caption, markup=None, pm="HTML"):
         kw["reply_markup"] = markup
     return await bot.send_video(**kw)
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # YORDAMCHI
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def check_subscription(user_id, bot):
     not_subbed = []
@@ -442,9 +442,9 @@ def clear_admin_state(context):
                 "editing_btn_key", "emoji_menu"]:
         context.user_data.pop(key, None)
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # HANDLERLAR
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -473,13 +473,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     hello = (f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
              f"<b>Kino botga xush kelibsiz!</b>\n\n"
-             f"Kino <b>raqamini</b> yuboring — video darhol chiqadi.")
+             f"Kino <b>raqamini</b> yuboring â€” video darhol chiqadi.")
     is_admin = (user.id == ADMIN_ID)
     await sm(context.bot, user.id, hello, main_menu_kb(is_admin=is_admin))
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # CALLBACK HANDLER
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -531,11 +531,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("editing_btn_key", None)
         context.user_data["emoji_menu"] = True
         try:
-            await q.edit_message_text("Tugmani pastdan tanlang 👇")
+            await q.edit_message_text("Tugmani pastdan tanlang ðŸ‘‡")
         except Exception:
             pass
         await sm(context.bot, uid,
-            "<b>Tugma sozlamalari</b>\nO'zgartirmoqchi bo'lgan tugmani pastdan tanlang 👇",
+            "<b>Tugma sozlamalari</b>\nO'zgartirmoqchi bo'lgan tugmani pastdan tanlang ðŸ‘‡",
             emoji_menu_kb())
 
     elif data == "emoji_reset_all":
@@ -547,12 +547,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         EMOJI_IDS.clear()
         save()
         try:
-            await q.edit_message_text("✅ Barcha tugmalar tiklandi!")
+            await q.edit_message_text("âœ… Barcha tugmalar tiklandi!")
         except Exception:
             pass
         context.user_data["emoji_menu"] = True
         context.user_data.pop("editing_btn_key", None)
-        await sm(context.bot, uid, "✅ Tiklandi! Tugmani tanlang:", emoji_menu_kb())
+        await sm(context.bot, uid, "âœ… Tiklandi! Tugmani tanlang:", emoji_menu_kb())
 
     elif data.startswith("emoji_reset|"):
         if uid != ADMIN_ID:
@@ -568,7 +568,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["emoji_menu"] = True
         try:
             await q.edit_message_text(
-                f"✅ <b>{BTN_LABELS.get(key, key)}</b> tiklandi!\nDefault: <code>{default}</code>",
+                f"âœ… <b>{BTN_LABELS.get(key, key)}</b> tiklandi!\nDefault: <code>{default}</code>",
                 parse_mode="HTML")
         except Exception:
             pass
@@ -586,7 +586,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
             pass
-        await sm(context.bot, uid, "❌ Xabar yuborish bekor qilindi.", admin_menu_kb())
+        await sm(context.bot, uid, "âŒ Xabar yuborish bekor qilindi.", admin_menu_kb())
 
     elif data == "broadcast_add_btn":
         if uid != ADMIN_ID:
@@ -596,8 +596,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["broadcast_btn_step"] = "name"
         context.user_data["admin_state"] = "broadcast_btn_name"
         await sm(context.bot, uid,
-            "Tugma nomini kiriting (masalan: <code>🔗 Bizning kanal</code>):",
-            ikb([[ibtn("❌ Bekor", data="broadcast_cancel", style="danger")]]))
+            "Tugma nomini kiriting (masalan: <code>ðŸ”— Bizning kanal</code>):",
+            ikb([[ibtn("âŒ Bekor", data="broadcast_cancel", style="danger")]]))
 
     elif data == "broadcast_send":
         if uid != ADMIN_ID:
@@ -606,7 +606,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("Yuborilmoqda...")
         pending = BROADCAST_PENDING.get(uid)
         if not pending or not pending.get("msg"):
-            await sm(context.bot, uid, "❌ Yuborish uchun xabar yo'q.")
+            await sm(context.bot, uid, "âŒ Yuborish uchun xabar yo'q.")
             return
         await do_broadcast(context.bot, uid, pending)
         BROADCAST_PENDING.pop(uid, None)
@@ -748,11 +748,11 @@ async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             DB["users"][uid].setdefault("watched", {})[f"{pay['code']}_{pay['ep']}"] = True
             DB["stats"]["total_views"] = DB["stats"].get("total_views", 0) + 1
             save()
-            await sm(context.bot, pay["user_id"], "✅ <b>To'lovingiz tasdiqlandi! Kino quyida:</b>")
+            await sm(context.bot, pay["user_id"], "âœ… <b>To'lovingiz tasdiqlandi! Kino quyida:</b>")
             await sv(context.bot, pay["user_id"], eps[idx],
                 f"<b>{movie.get('title')}</b>\nQism: {pay['ep']}")
     else:
-        await sm(context.bot, pay["user_id"], "✅ <b>Admin to'lovingizni tasdiqladi!</b>")
+        await sm(context.bot, pay["user_id"], "âœ… <b>Admin to'lovingizni tasdiqladi!</b>")
 
 
 async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -762,16 +762,16 @@ async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["reply_to"] = int(uid)
     await q.message.reply_text(f"<code>{uid}</code> ga xabar yozing.", parse_mode="HTML")
 
-# ══════════════════════════════════════════════════════════
-# TEXT HANDLER — TO'G'RILANGAN
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# TEXT HANDLER â€” TO'G'RILANGAN
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid = user.id
     text = (update.message.text or "").strip()
 
-    # ── 1. editing_btn_key holati ──
+    # â”€â”€ 1. editing_btn_key holati â”€â”€
     if uid == ADMIN_ID and context.user_data.get("editing_btn_key"):
         key = context.user_data.pop("editing_btn_key")
 
@@ -790,12 +790,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             existing_label = DEFAULT_BTN.get(key, "")
 
         if custom_emoji_id:
-            # Custom emoji — EMOJI_IDS ga qo'shiladi, matn o'zgarmaydi
+            # Custom emoji â€” EMOJI_IDS ga qo'shiladi, matn o'zgarmaydi
             new_text = existing_label
             EMOJI_IDS[key] = custom_emoji_id
             eid_info = f"\nCustom emoji ID: <code>{custom_emoji_id}</code>"
         elif is_only_emoji(text):
-            # ══ ASOSIY TUZATISH #2: Ko'p emoji to'plash ══
+            # â•â• ASOSIY TUZATISH #2: Ko'p emoji to'plash â•â•
             # Agar avval ham oddiy emoji prefix bo'lsa, yangi emoji QO'SHILADI
             if existing_emoji_prefix:
                 # Mavjud prefixga yangi emoji qo'shiladi
@@ -807,7 +807,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             EMOJI_IDS.pop(key, None)
             eid_info = ""
         else:
-            # Oddiy matn yoki emoji+matn — to'liq yangilanadi
+            # Oddiy matn yoki emoji+matn â€” to'liq yangilanadi
             new_text = text
             EMOJI_IDS.pop(key, None)
             eid_info = ""
@@ -820,31 +820,31 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             eid_info = f"\nCustom emoji ID: <code>{eid}</code>"
 
         await sm(context.bot, uid,
-            f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n"
+            f"âœ… <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n"
             f"Ko'rinish: <code>{new_text}</code>{eid_info}\n\n"
-            f"Yana emoji qo'shish uchun emoji yuboring yoki boshqa tugmani tanlang 👇")
+            f"Yana emoji qo'shish uchun emoji yuboring yoki boshqa tugmani tanlang ðŸ‘‡")
         context.user_data["emoji_menu"] = True
 
-        # editing_btn_key ni saqlab qolmaymiz — tugma yana tanlanishi kerak
+        # editing_btn_key ni saqlab qolmaymiz â€” tugma yana tanlanishi kerak
         await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
         return
 
-    # ── 2. Emoji menyu rejimi — TUZATILGAN ──
+    # â”€â”€ 2. Emoji menyu rejimi â€” TUZATILGAN â”€â”€
     if uid == ADMIN_ID and context.user_data.get("emoji_menu"):
-        if text == "⬅️ Orqaga":
+        if text == "â¬…ï¸ Orqaga":
             context.user_data.pop("emoji_menu", None)
             context.user_data.pop("editing_btn_key", None)
             await sm(context.bot, uid, "Admin panel", admin_menu_kb())
             return
 
-        if text == "🗑 Hammasini tiklash":
+        if text == "ðŸ—‘ Hammasini tiklash":
             DB["btn_texts"] = {}
             EMOJI_IDS.clear()
             save()
-            await sm(context.bot, uid, "✅ Barcha tugmalar tiklandi!", emoji_menu_kb())
+            await sm(context.bot, uid, "âœ… Barcha tugmalar tiklandi!", emoji_menu_kb())
             return
 
-        # ══ ASOSIY TUZATISH #1: find_key_by_text ishlatiladi ══
+        # â•â• ASOSIY TUZATISH #1: find_key_by_text ishlatiladi â•â•
         # BTN_LABELS ham, hozirgi bt() qiymatlari ham tekshiriladi
         key = find_key_by_text(text)
         if key:
@@ -859,32 +859,32 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"<b>{BTN_LABELS.get(key, key)}</b>\n\n"
                 f"Hozirgi matn: <code>{cur}</code>{eid_info}{emoji_info}\n\n"
                 f"Yuboring:\n"
-                f"• Faqat emoji → qo'shiladi (ketma-ket yuborsangiz ko'payadi)\n"
-                f"• Emoji + matn → to'liq yangilanadi\n"
-                f"• Custom emoji → icon sifatida (matn o'zgarmaydi)\n"
-                f"• Faqat matn → barcha emoji o'chadi",
+                f"â€¢ Faqat emoji â†’ qo'shiladi (ketma-ket yuborsangiz ko'payadi)\n"
+                f"â€¢ Emoji + matn â†’ to'liq yangilanadi\n"
+                f"â€¢ Custom emoji â†’ icon sifatida (matn o'zgarmaydi)\n"
+                f"â€¢ Faqat matn â†’ barcha emoji o'chadi",
                 emoji_single_action_kb(key))
             return
 
-        # Tanilmagan tugma — menyuda qolsin
+        # Tanilmagan tugma â€” menyuda qolsin
         return
 
-    # ── 3. Admin reply_to holati ──
+    # â”€â”€ 3. Admin reply_to holati â”€â”€
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
             await sm(context.bot, target, f"<b>Admin javobi:</b>\n{text}")
-            await sm(context.bot, uid, "✅ Yuborildi!")
+            await sm(context.bot, uid, "âœ… Yuborildi!")
         except Exception as e:
-            await sm(context.bot, uid, f"❌ Xato: {e}")
+            await sm(context.bot, uid, f"âŒ Xato: {e}")
         return
 
-    # ── 4. Admin tugmalarini aniqlash ──
+    # â”€â”€ 4. Admin tugmalarini aniqlash â”€â”€
     all_admin_btns = {bt(k) for k in [
         "kino_joy", "qism_qosh", "pullik", "stat",
         "kanal_post", "maj_kanal", "karta", "ilova",
         "emoji_soz", "asosiy", "boshqarish"
-    ]} | {"📢 Barchaga xabar"}
+    ]} | {"ðŸ“¢ Barchaga xabar"}
 
     if uid == ADMIN_ID and text in all_admin_btns:
         if text == bt("emoji_soz"):
@@ -894,7 +894,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["emoji_menu"] = True
             await sm(context.bot, uid,
                 "<b>Tugma sozlamalari</b>\n"
-                "O'zgartirmoqchi bo'lgan tugmani pastdan tanlang 👇",
+                "O'zgartirmoqchi bo'lgan tugmani pastdan tanlang ðŸ‘‡",
                 emoji_menu_kb())
             return
         context.user_data.pop("emoji_menu", None)
@@ -902,7 +902,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_buttons(update, context, text)
         return
 
-    # ── 5. Foydalanuvchi tugmalari ──
+    # â”€â”€ 5. Foydalanuvchi tugmalari â”€â”€
     if text == bt("yordam"):
         await sm(context.bot, uid,
             "Savol yoki muammoingizni matn, rasm yoki video ko'rinishida yuboring.\n"
@@ -924,27 +924,27 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML")
         return
 
-    # ── 6. Admin holat handler ──
+    # â”€â”€ 6. Admin holat handler â”€â”€
     if uid == ADMIN_ID:
         handled = await admin_state_handler(update, context, text)
         if handled:
             return
 
-    # ── 7. Yordam so'rovi ──
+    # â”€â”€ 7. Yordam so'rovi â”€â”€
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         cap = (f"<b>Yordam so'rovi</b>\n{user.full_name} (@{user.username or '-'})\n"
                f"<code>{uid}</code>\n\n")
         await sm(context.bot, ADMIN_ID, cap + text, reply_admin_kb(uid))
-        await sm(context.bot, uid, "✅ Xabaringiz adminga yuborildi!")
+        await sm(context.bot, uid, "âœ… Xabaringiz adminga yuborildi!")
         return
 
-    # ── 8. To'lov cheki kutilmoqda ──
+    # â”€â”€ 8. To'lov cheki kutilmoqda â”€â”€
     if context.user_data.get("awaiting_check"):
         await sm(context.bot, uid, "Iltimos, chek <b>rasmini</b> yuboring.")
         return
 
-    # ── 9. Kino kodi qidirish ──
+    # â”€â”€ 9. Kino kodi qidirish â”€â”€
     code = text.upper().strip()
     if code in DB["movies"]:
         ns = await check_subscription(uid, context.bot)
@@ -962,15 +962,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_buttons(update, context, text):
     uid = update.effective_user.id
 
-    if text == "📢 Barchaga xabar":
+    if text == "ðŸ“¢ Barchaga xabar":
         context.user_data["admin_state"] = "broadcast_content"
         BROADCAST_PENDING[uid] = {"msg": None, "buttons": []}
         await sm(context.bot, uid,
-            "📢 <b>Barchaga xabar yuborish</b>\n\n"
+            "ðŸ“¢ <b>Barchaga xabar yuborish</b>\n\n"
             "Xabar yuboring (matn, rasm yoki video).\n"
-            "<b>Muhim:</b> Xabar qanday yuborsangiz — foydalanuvchilarga ham o'sha ko'rinishda boradi.\n"
+            "<b>Muhim:</b> Xabar qanday yuborsangiz â€” foydalanuvchilarga ham o'sha ko'rinishda boradi.\n"
             "Emoji ham to'liq (premium emoji) saqlanadi.",
-            ikb([[ibtn("❌ Bekor", data="broadcast_cancel", style="danger")]]))
+            ikb([[ibtn("âŒ Bekor", data="broadcast_cancel", style="danger")]]))
         return
 
 
@@ -1044,7 +1044,7 @@ async def admin_state_handler(update, context, text):
         context.user_data["admin_state"] = "broadcast_btn_url"
         await sm(context.bot, uid,
             f"Tugma linki kiriting (https:// bilan boshlansin):",
-            ikb([[ibtn("❌ Bekor", data="broadcast_cancel", style="danger")]]))
+            ikb([[ibtn("âŒ Bekor", data="broadcast_cancel", style="danger")]]))
         return True
 
     if state == "broadcast_btn_url":
@@ -1054,14 +1054,14 @@ async def admin_state_handler(update, context, text):
         context.user_data.pop("admin_state", None)
         context.user_data.pop("broadcast_btn_step", None)
         pending = BROADCAST_PENDING[uid]
-        btns_info = "\n".join([f"• {b['text']} → {b['url']}" for b in pending["buttons"]])
+        btns_info = "\n".join([f"â€¢ {b['text']} â†’ {b['url']}" for b in pending["buttons"]])
         await sm(context.bot, uid,
-            f"✅ Tugma qo'shildi!\n\nQo'shilgan tugmalar:\n{btns_info}\n\nNima qilishni tanlang:",
+            f"âœ… Tugma qo'shildi!\n\nQo'shilgan tugmalar:\n{btns_info}\n\nNima qilishni tanlang:",
             broadcast_preview_kb(pending["buttons"]))
         return True
 
     if state == "broadcast_content":
-        # Text xabar uchun — media handler alohida ishlaydi
+        # Text xabar uchun â€” media handler alohida ishlaydi
         pending = BROADCAST_PENDING.setdefault(uid, {"msg": None, "buttons": []})
         pending["msg"] = {"type": "text", "text": text,
                           "entities": update.message.entities}
@@ -1069,7 +1069,7 @@ async def admin_state_handler(update, context, text):
         btns = pending["buttons"]
         preview_kb = broadcast_preview_kb(btns) if btns else broadcast_confirm_kb()
         await sm(context.bot, uid,
-            f"📋 <b>Xabar ko'rinishi:</b>\n\n{text}\n\n"
+            f"ðŸ“‹ <b>Xabar ko'rinishi:</b>\n\n{text}\n\n"
             f"Foydalanuvchilar soni: <b>{len(DB.get('users', {}))}</b>\n\n"
             f"Tugma qo'shishingiz yoki to'g'ridan yuborishingiz mumkin:",
             preview_kb)
@@ -1079,7 +1079,7 @@ async def admin_state_handler(update, context, text):
         DB["card_number"] = text
         save()
         context.user_data.pop("admin_state")
-        await sm(context.bot, uid, f"✅ Karta saqlandi: <code>{text}</code>")
+        await sm(context.bot, uid, f"âœ… Karta saqlandi: <code>{text}</code>")
         return True
 
     if state == "add_movie_code":
@@ -1095,14 +1095,14 @@ async def admin_state_handler(update, context, text):
         context.user_data.pop("admin_state")
         context.user_data.pop("new_movie_code", None)
         await sm(context.bot, uid,
-            f"✅ <b>{text}</b> kinosi qo'shildi!\nKod: <code>{code}</code>",
+            f"âœ… <b>{text}</b> kinosi qo'shildi!\nKod: <code>{code}</code>",
             movie_added_kb(code))
         return True
 
     if state == "add_ep_code":
         code = text.upper()
         if code not in DB["movies"]:
-            await sm(context.bot, uid, "❌ Bunday kod yo'q. Qayta kiriting yoki bekor qiling.")
+            await sm(context.bot, uid, "âŒ Bunday kod yo'q. Qayta kiriting yoki bekor qiling.")
             context.user_data.pop("admin_state")
             return True
         context.user_data["ep_movie_code"] = code
@@ -1113,7 +1113,7 @@ async def admin_state_handler(update, context, text):
     if state == "set_price_code":
         code = text.upper()
         if code not in DB["movies"]:
-            await sm(context.bot, uid, "❌ Bunday kod yo'q. Qayta kiriting yoki bekor qiling.")
+            await sm(context.bot, uid, "âŒ Bunday kod yo'q. Qayta kiriting yoki bekor qiling.")
             context.user_data.pop("admin_state")
             return True
         context.user_data["price_movie_code"] = code
@@ -1135,7 +1135,7 @@ async def admin_state_handler(update, context, text):
         context.user_data.pop("admin_state")
         context.user_data.pop("price_movie_code", None)
         context.user_data.pop("price_ep", None)
-        await sm(context.bot, uid, f"✅ {code} — {ep}-qism narxi: <b>{text} so'm</b>")
+        await sm(context.bot, uid, f"âœ… {code} â€” {ep}-qism narxi: <b>{text} so'm</b>")
         return True
 
     if state == "add_channel":
@@ -1144,16 +1144,16 @@ async def admin_state_handler(update, context, text):
             uname, title, url = parts[0], parts[1], parts[2]
             DB["channels"].append({"username": uname, "title": title, "url": url})
             save()
-            await sm(context.bot, uid, f"✅ Kanal qo'shildi: <b>{title}</b>")
+            await sm(context.bot, uid, f"âœ… Kanal qo'shildi: <b>{title}</b>")
         except Exception:
-            await sm(context.bot, uid, "❌ Format xato!\n<code>@username | Kanal nomi | https://t.me/username</code>")
+            await sm(context.bot, uid, "âŒ Format xato!\n<code>@username | Kanal nomi | https://t.me/username</code>")
         context.user_data.pop("admin_state")
         return True
 
     if state == "post_channel_code":
         code = text.upper()
         if code not in DB["movies"]:
-            await sm(context.bot, uid, "❌ Bunday kod yo'q.")
+            await sm(context.bot, uid, "âŒ Bunday kod yo'q.")
             context.user_data.pop("admin_state")
             return True
         context.user_data["post_code"] = code
@@ -1176,26 +1176,26 @@ async def admin_state_handler(update, context, text):
                 await sp(context.bot, channel, poster, caption, markup)
             else:
                 await sm(context.bot, channel, caption, markup)
-            await sm(context.bot, uid, "✅ Post yuborildi!")
+            await sm(context.bot, uid, "âœ… Post yuborildi!")
         except Exception as e:
-            await sm(context.bot, uid, f"❌ Xato: {e}")
+            await sm(context.bot, uid, f"âŒ Xato: {e}")
         context.user_data.pop("admin_state")
         context.user_data.pop("post_code", None)
         return True
 
     if state == "set_install":
-        await sm(context.bot, uid, "⚠️ Iltimos, matn emas — <b>fayl yoki video</b> yuboring:")
+        await sm(context.bot, uid, "âš ï¸ Iltimos, matn emas â€” <b>fayl yoki video</b> yuboring:")
         return True
 
     if state == "add_ep_video":
-        await sm(context.bot, uid, "⚠️ Iltimos, matn emas — <b>video fayl</b> yuboring:")
+        await sm(context.bot, uid, "âš ï¸ Iltimos, matn emas â€” <b>video fayl</b> yuboring:")
         return True
 
     return False
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # STICKER HANDLER
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -1233,14 +1233,14 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save()
 
     await sm(context.bot, uid,
-        f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n\n"
+        f"âœ… <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n\n"
         f"Ko'rinish: <code>{new_text}</code>")
     context.user_data["emoji_menu"] = True
     await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # MEDIA HANDLER
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1248,7 +1248,7 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     state = context.user_data.get("admin_state")
 
-    # ── Broadcast media qabul qilish ──
+    # â”€â”€ Broadcast media qabul qilish â”€â”€
     if uid == ADMIN_ID and state == "broadcast_content":
         pending = BROADCAST_PENDING.setdefault(uid, {"msg": None, "buttons": []})
         if msg.photo:
@@ -1264,13 +1264,13 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "caption": msg.caption or "",
             }
         else:
-            await sm(context.bot, uid, "❌ Faqat matn, rasm yoki video yuboring.")
+            await sm(context.bot, uid, "âŒ Faqat matn, rasm yoki video yuboring.")
             return
         context.user_data.pop("admin_state", None)
         btns = pending["buttons"]
         preview_kb = broadcast_preview_kb(btns) if btns else broadcast_confirm_kb()
         mtype = pending["msg"]["type"]
-        icon = "🖼" if mtype == "photo" else "🎬"
+        icon = "ðŸ–¼" if mtype == "photo" else "ðŸŽ¬"
         cap = pending["msg"].get("caption", "") or "(caption yo'q)"
         await sm(context.bot, uid,
             f"{icon} <b>Xabar qabul qilindi</b>\n\n"
@@ -1288,11 +1288,11 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("admin_state")
             context.user_data.pop("ep_movie_code", None)
             await sm(context.bot, uid,
-                f"✅ <b>{ep_num}-qism</b> saqlandi!\n"
+                f"âœ… <b>{ep_num}-qism</b> saqlandi!\n"
                 f"Kino: <code>{code}</code>",
                 movie_added_kb(code))
         else:
-            await sm(context.bot, uid, "⚠️ Faqat video yuboring!")
+            await sm(context.bot, uid, "âš ï¸ Faqat video yuboring!")
         return
 
     if uid == ADMIN_ID and state == "set_install":
@@ -1300,14 +1300,14 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             DB["settings"]["install_video_id"] = msg.video.file_id
             save()
             context.user_data.pop("admin_state")
-            await sm(context.bot, uid, "✅ O'rnatish videosi saqlandi!")
+            await sm(context.bot, uid, "âœ… O'rnatish videosi saqlandi!")
         elif msg.document:
             DB["settings"]["install_file_id"] = msg.document.file_id
             save()
             context.user_data.pop("admin_state")
-            await sm(context.bot, uid, "✅ O'rnatish fayli saqlandi!")
+            await sm(context.bot, uid, "âœ… O'rnatish fayli saqlandi!")
         else:
-            await sm(context.bot, uid, "⚠️ Video yoki fayl yuboring!")
+            await sm(context.bot, uid, "âš ï¸ Video yoki fayl yuboring!")
         return
 
     if context.user_data.get("awaiting_check") and msg.photo:
@@ -1322,7 +1322,7 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                f"<code>{uid}</code>\nKino: <b>{pay_info['code']}</b>\n"
                f"Qism: <b>{pay_info['ep']}</b>\nNarx: <b>{pay_info['price']} so'm</b>")
         await sp(context.bot, ADMIN_ID, msg.photo[-1].file_id, cap, payment_admin_kb(pid))
-        await sm(context.bot, uid, "✅ Chek adminga yuborildi! Tasdiqlanishini kuting.")
+        await sm(context.bot, uid, "âœ… Chek adminga yuborildi! Tasdiqlanishini kuting.")
         return
 
     if context.user_data.get("awaiting_help"):
@@ -1333,7 +1333,7 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sp(context.bot, ADMIN_ID, msg.photo[-1].file_id, cap, reply_admin_kb(uid))
         elif msg.video:
             await sv(context.bot, ADMIN_ID, msg.video.file_id, cap, reply_admin_kb(uid))
-        await sm(context.bot, uid, "✅ Xabaringiz adminga yuborildi!")
+        await sm(context.bot, uid, "âœ… Xabaringiz adminga yuborildi!")
         return
 
     if uid == ADMIN_ID and "reply_to" in context.user_data:
@@ -1343,17 +1343,17 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await sp(context.bot, target, msg.photo[-1].file_id, "<b>Admin javobi</b>")
             elif msg.video:
                 await sv(context.bot, target, msg.video.file_id, "<b>Admin javobi</b>")
-            await sm(context.bot, uid, "✅ Yuborildi!")
+            await sm(context.bot, uid, "âœ… Yuborildi!")
         except Exception as e:
-            await sm(context.bot, uid, f"❌ Xato: {e}")
+            await sm(context.bot, uid, f"âŒ Xato: {e}")
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # MAIN
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # BROADCAST
-# ══════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def do_broadcast(bot, admin_id: int, pending: dict):
     msg_data = pending.get("msg")
@@ -1398,13 +1398,14 @@ async def do_broadcast(bot, admin_id: int, pending: dict):
             fail += 1
 
     await sm(bot, admin_id,
-        f"✅ <b>Xabar yuborildi!</b>\n\n"
+        f"âœ… <b>Xabar yuborildi!</b>\n\n"
         f"Muvaffaqiyatli: <b>{ok}</b>\n"
         f"Xato: <b>{fail}</b>",
         admin_menu_kb())
 
 
 
+def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
