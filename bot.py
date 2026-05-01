@@ -99,12 +99,23 @@ DEFAULT_DB = {
 # ══════════════════════════════════════════════════════════
 
 def db_load():
-    for attempt in range(3):
+    """
+    JSONBin dan ma'lumotlarni yuklaydi.
+    Agar yuklab bo'lmasa — 5 marta urinadi (har birida 3 soniya kutadi).
+    Agar baribir muvaffaqiyatsiz bo'lsa — bot to'xtaydi (bo'sh DB bilan ISHLAMAYDI).
+    """
+    for attempt in range(5):
         try:
-            r = requests.get(f"{JSONBIN_URL}/latest",
-                headers={"X-Master-Key": JSONBIN_API_KEY}, timeout=20)
+            r = requests.get(
+                f"{JSONBIN_URL}/latest",
+                headers={"X-Master-Key": JSONBIN_API_KEY},
+                timeout=30,
+            )
+            logger.info(f"DB load status: {r.status_code}")
             if r.status_code == 200:
                 data = r.json().get("record", {})
+
+                # Etishmayotgan kalitlarni to'ldirish (mavjud ma'lumotlarga TEGMAYDI)
                 for k, dv in DEFAULT_DB.items():
                     if k not in data:
                         data[k] = json.loads(json.dumps(dv))
@@ -112,42 +123,82 @@ def db_load():
                         data[k] = json.loads(json.dumps(dv))
                     elif isinstance(dv, list) and not isinstance(data[k], list):
                         data[k] = json.loads(json.dumps(dv))
-                # btn_emoji_ids majburiy bo'lsin
-                if "btn_emoji_ids" not in data:
-                    data["btn_emoji_ids"] = {}
-                logger.info(f"Yuklandi: {len(data.get('users', {}))} user, {len(data.get('movies', {}))} kino")
+
+                logger.info(
+                    f"✅ DB yuklandi: {len(data.get('users', {}))} user, "
+                    f"{len(data.get('movies', {}))} kino, "
+                    f"{len(data.get('btn_texts', {}))} btn_text, "
+                    f"{len(data.get('btn_emoji_ids', {}))} emoji_id"
+                )
                 return data
+            else:
+                logger.error(f"DB load #{attempt+1} HTTP {r.status_code}: {r.text[:200]}")
         except Exception as e:
-            logger.error(f"DB load #{attempt+1}: {e}")
-            if attempt < 2:
-                time.sleep(2)
-    return json.loads(json.dumps(DEFAULT_DB))
+            logger.error(f"DB load #{attempt+1} xato: {e}")
+
+        wait = 3 * (attempt + 1)
+        logger.warning(f"DB yuklanmadi, {wait}s kutilmoqda...")
+        time.sleep(wait)
+
+    # Bu yerga yetib kelsa — hech qachon bo'sh DB bilan ishlamaslik uchun to'xtatamiz
+    logger.critical("❌ JSONBin dan ma'lumot yuklab bo'lmadi! Bot to'xtatilmoqda.")
+    raise SystemExit("DB yuklanmadi — bot to'xtatildi")
+
 
 def db_save(data):
+    """
+    Ma'lumotlarni JSONBin ga saqlaydi.
+    3 marta urinadi. Xato bo'lsa — logga yozadi lekin botni to'xtatmaydi.
+    """
     for attempt in range(3):
         try:
-            r = requests.put(JSONBIN_URL,
+            payload = json.dumps(data, ensure_ascii=False)
+            r = requests.put(
+                JSONBIN_URL,
                 headers={
                     "X-Master-Key": JSONBIN_API_KEY,
                     "Content-Type": "application/json",
-                    "X-Bin-Versioning": "false"
+                    "X-Bin-Versioning": "false",
                 },
-                data=json.dumps(data, ensure_ascii=False), timeout=20)
+                data=payload,
+                timeout=30,
+            )
             if r.status_code == 200:
-                logger.info("DB saqlandi ✓")
+                logger.info(
+                    f"✅ DB saqlandi: {len(data.get('movies', {}))} kino, "
+                    f"{len(data.get('users', {}))} user"
+                )
                 return True
+            else:
+                logger.error(f"DB save #{attempt+1} HTTP {r.status_code}: {r.text[:200]}")
         except Exception as e:
-            logger.error(f"DB save #{attempt+1}: {e}")
-            if attempt < 2:
-                time.sleep(1)
+            logger.error(f"DB save #{attempt+1} xato: {e}")
+
+        if attempt < 2:
+            time.sleep(2)
+
+    logger.error("❌ DB 3 marta ham saqlanmadi!")
     return False
+
 
 DB = db_load()
 
 def save():
     ok = db_save(DB)
     if not ok:
-        logger.error("Saqlash muvaffaqiyatsiz!")
+        logger.error("\u274c Saqlash muvaffaqiyatsiz! Ma'lumotlar yo'qolishi mumkin.")
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": ADMIN_ID,
+                    "text": "\u26a0\ufe0f <b>DB saqlashda xato!</b>\nJSONBin ga ulanib bo'lmadi.",
+                    "parse_mode": "HTML",
+                },
+                timeout=10,
+            )
+        except Exception:
+            pass
     return ok
 
 def bt(key):
