@@ -90,8 +90,10 @@ DEFAULT_DB = {
     "settings": {"install_file_id": None, "install_video_id": None},
     "stats": {"total_views": 0},
     "btn_texts": {},
-    "btn_emoji_ids": {},
 }
+
+# Emoji ID lar faqat xotirada saqlanadi (JSONBin'ga yozilmaydi)
+EMOJI_IDS: dict = {}
 
 # ══════════════════════════════════════════════════════════
 # DB
@@ -111,8 +113,8 @@ def db_load():
                         data[k] = json.loads(json.dumps(dv))
                     elif isinstance(dv, list) and not isinstance(data[k], list):
                         data[k] = json.loads(json.dumps(dv))
-                if "btn_emoji_ids" not in data:
-                    data["btn_emoji_ids"] = {}
+                # Eski btn_emoji_ids ni DB'dan o'chiramiz (endi xotirada)
+                data.pop("btn_emoji_ids", None)
                 logger.info(f"Yuklandi: {len(data.get('users', {}))} user, {len(data.get('movies', {}))} kino")
                 return data
         except Exception as e:
@@ -152,7 +154,7 @@ def bt(key):
     return DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
 
 def get_eid(key):
-    return DB.get("btn_emoji_ids", {}).get(key)
+    return EMOJI_IDS.get(key)
 
 # ══════════════════════════════════════════════════════════
 # EMOJI ANIQLASH YORDAMCHILAR
@@ -489,7 +491,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await q.answer()
         DB["btn_texts"] = {}
-        DB["btn_emoji_ids"] = {}
+        EMOJI_IDS.clear()
         save()
         try:
             await q.edit_message_text("✅ Barcha tugmalar tiklandi!")
@@ -506,7 +508,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer()
         key = data.split("|")[1]
         DB.get("btn_texts", {}).pop(key, None)
-        DB.setdefault("btn_emoji_ids", {}).pop(key, None)
+        EMOJI_IDS.pop(key, None)
         save()
         default = DEFAULT_BTN.get(key, "")
         context.user_data.pop("editing_btn_key", None)
@@ -699,17 +701,17 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = DEFAULT_BTN.get(key, "")
 
         if custom_emoji_id:
-            # Custom emoji yuborildi — faqat icon sifatida saqlanadi, matn o'zgarmaydi
+            # Custom emoji yuborildi — faqat xotirada saqlanadi (JSONBin'ga yozilmaydi)
             new_text = label
-            DB.setdefault("btn_emoji_ids", {})[key] = custom_emoji_id
+            EMOJI_IDS[key] = custom_emoji_id
         elif is_only_emoji(text):
             # Faqat oddiy emoji — prefiks sifatida qo'shiladi
             new_text = f"{text} {label}"
-            DB.setdefault("btn_emoji_ids", {}).pop(key, None)
+            EMOJI_IDS.pop(key, None)
         else:
             # Oddiy matn yoki emoji+matn — to'liq yangilanadi
             new_text = text
-            DB.setdefault("btn_emoji_ids", {}).pop(key, None)
+            EMOJI_IDS.pop(key, None)
 
         DB.setdefault("btn_texts", {})[key] = new_text
         save()
@@ -733,7 +735,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if text == "🗑 Hammasini tiklash":
             DB["btn_texts"] = {}
-            DB["btn_emoji_ids"] = {}
+            EMOJI_IDS.clear()
             save()
             await sm(context.bot, uid, "✅ Barcha tugmalar tiklandi!", emoji_menu_kb())
             return
@@ -1062,7 +1064,7 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = DEFAULT_BTN.get(key, "")
     new_text = f"{emoji} {label}"
     DB.setdefault("btn_texts", {})[key] = new_text
-    DB.setdefault("btn_emoji_ids", {}).pop(key, None)
+    EMOJI_IDS.pop(key, None)
     save()
 
     await sm(context.bot, uid,
