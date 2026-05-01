@@ -156,62 +156,41 @@ def bt(key):
     return DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
 
 def get_eid(key):
-    """Birinchi custom emoji ID ni qaytaradi (Telegram icon uchun)"""
-    val = EMOJI_IDS.get(key)
-    if isinstance(val, list):
-        return val[0] if val else None
-    return val
-
-def get_all_eids(key):
-    """Barcha custom emoji IDlar ro'yxatini qaytaradi"""
-    val = EMOJI_IDS.get(key)
-    if isinstance(val, list):
-        return val
-    elif isinstance(val, str):
-        return [val]
-    return []
+    return EMOJI_IDS.get(key)
 
 # ══════════════════════════════════════════════════════════
 # EMOJI ANIQLASH YORDAMCHILAR
 # ══════════════════════════════════════════════════════════
 
-# Unicode emoji bloklari — keng qamrovli
-EMOJI_PATTERN = (
-    "[\U0001F300-\U0001F9FF"   # Misc Symbols, Emoticons, Transport, etc.
-    "\U0001FA00-\U0001FA6F"    # Chess, symbols
-    "\U0001FA70-\U0001FAFF"    # Symbols and Pictographs Extended-A
-    "\U00002600-\U000027BF"    # Misc symbols
-    "\U0000FE00-\U0000FE0F"    # Variation selectors
-    "\U0001F000-\U0001F02F"    # Mahjong
-    "\U0001F0A0-\U0001F0FF"    # Playing cards
-    "\U0001F100-\U0001F1FF"    # Enclosed alphanumeric supplement
-    "\U0001F200-\U0001F2FF"    # Enclosed ideographic supplement
-    "\U00002702-\U000027B0"
-    "\u200d\ufe0f\u20e3"       # ZWJ, variation selector, combining enclosing keycap
-    "]"
-)
-
-EMOJI_RE = re.compile(EMOJI_PATTERN + "+", re.UNICODE)
-
-# Matn boshidagi emoji prefix (bo'sh joy bilan) ni topuvchi pattern
-EMOJI_PREFIX_RE = re.compile(
-    r'^((?:' + EMOJI_PATTERN + r'+\s*)+)',
-    re.UNICODE
+EMOJI_RE = re.compile(
+    r'[\U0001F000-\U0001FFFF'
+    r'\U00002600-\U000027BF'
+    r'\U0000FE00-\U0000FE0F'
+    r'\U00020000-\U0002FA1F'
+    r'\u200d'
+    r'\ufe0f'
+    r']+'
 )
 
 def is_only_emoji(text: str) -> bool:
-    """Matn faqat emojidan iboratmi?"""
     cleaned = EMOJI_RE.sub('', text).strip()
     return len(cleaned) == 0 and len(text.strip()) > 0
 
 def extract_emoji_prefix(text: str) -> str:
-    """Matnning boshidagi emoji prefixini qaytaradi (bo'sh joysiz)"""
-    match = EMOJI_PREFIX_RE.match(text)
+    """Matnning boshidagi emoji prefixini qaytaradi"""
+    match = re.match(
+        r'^((?:[\U0001F000-\U0001FFFF\u2600-\u27BF\uFE00-\uFE0F\u200d\ufe0f]+\s*)+)',
+        text
+    )
     return match.group(1).rstrip() if match else ""
 
 def strip_emoji_prefix(text: str) -> str:
     """Matnning boshidagi emoji prefixini olib tashlaydi"""
-    return EMOJI_PREFIX_RE.sub('', text).strip()
+    result = re.sub(
+        r'^(?:[\U0001F000-\U0001FFFF\u2600-\u27BF\uFE00-\uFE0F\u200d\ufe0f]+\s*)+',
+        '', text
+    ).strip()
+    return result
 
 def extract_custom_emoji_id(message) -> str | None:
     if not message.entities:
@@ -258,14 +237,7 @@ def ibtn(text, data=None, url=None, style=None, emoji_id=None):
     if emoji_id: b["icon_custom_emoji_id"] = emoji_id
     return b
 
-def rbtn(text, style=None, emoji_id=None, extra_eids=None):
-    """
-    extra_eids — qo'shimcha custom emoji IDlar (2-chi, 3-chi...).
-    Telegram faqat bitta icon_custom_emoji_id qabul qiladi,
-    shuning uchun qo'shimchalar matn prefixiga qo'shilmaydi
-    (Telegram ularni render qila olmaydi reply keyboard da).
-    Faqat birinchi ID icon sifatida ishlatiladi.
-    """
+def rbtn(text, style=None, emoji_id=None):
     b = {"text": text}
     if style:    b["style"] = style
     if emoji_id: b["icon_custom_emoji_id"] = emoji_id
@@ -280,20 +252,6 @@ def rkb(rows, resize=True):
 # ══════════════════════════════════════════════════════════
 # KLAVIATURALAR
 # ══════════════════════════════════════════════════════════
-
-def btn_text_with_extra_emojis(key):
-    """
-    Tugma uchun to'liq matn.
-    Agar 2+ custom emoji bo'lsa, 2-chi va undan keyingilar matn prefixiga qo'shiladi.
-    Birinchi custom emoji icon_custom_emoji_id sifatida beriladi.
-    """
-    text = bt(key)
-    eids = get_all_eids(key)
-    # 2-chi va undan keyingi custom emoji IDlar matn prefixiga qo'shiladi
-    # Telegram ularni custom_emoji entity sifatida render qilmaydi reply keyboard da,
-    # shuning uchun oddiy unicode placeholder ishlatamiz — foydalanuvchi ko'radi
-    # Haqiqiy ko'p custom emoji uchun Telegram Bot API cheklovi bor
-    return text
 
 def main_menu_kb(is_admin=False):
     rows = [[
@@ -779,73 +737,44 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             existing_label = DEFAULT_BTN.get(key, "")
 
         if custom_emoji_id:
-            # Custom emoji — to'planadi (ro'yxat sifatida)
-            # ESLATMA: Telegram reply keyboard da faqat BITTA icon_custom_emoji_id ishlaydi.
-            # Ikkinchi custom emoji uchun uni oddiy emoji + matn kombinatsiyasida yuborish kerak.
-            existing_ids = EMOJI_IDS.get(key)
-            if isinstance(existing_ids, list):
-                existing_ids.append(custom_emoji_id)
-                new_ids = existing_ids
-            elif isinstance(existing_ids, str):
-                new_ids = [existing_ids, custom_emoji_id]
-            else:
-                new_ids = [custom_emoji_id]
-            EMOJI_IDS[key] = new_ids
-            # Matn o'zgarmaydi — mavjud matn saqlanadi
-            DB.setdefault("btn_texts", {})[key] = existing
-            save()
-            ids_str = "\n".join(f"  {i+1}. <code>{v}</code>" for i, v in enumerate(new_ids))
-            note = ""
-            if len(new_ids) > 1:
-                note = ("\n\n⚠️ <b>Telegram cheklovi:</b> Reply klaviaturada faqat "
-                        "1 ta custom emoji icon ko'rinadi.\n"
-                        "Ikkinchi emoji uchun: oddiy emoji yuboring (masalan 🔥❤️) — "
-                        "ular matn prefixiga qo'shiladi va ko'rinadi.")
-            await sm(context.bot, uid,
-                f"✅ Custom emoji saqlandi! Jami: <b>{len(new_ids)} ta</b>\n{ids_str}{note}\n\n"
-                f"Oddiy emoji yuboring yoki boshqa tugmani tanlang 👇")
-            context.user_data["editing_btn_key"] = key
-            context.user_data["emoji_menu"] = True
-            return
-
+            # Custom emoji — EMOJI_IDS ga qo'shiladi, matn o'zgarmaydi
+            new_text = existing_label
+            EMOJI_IDS[key] = custom_emoji_id
+            eid_info = f"\nCustom emoji ID: <code>{custom_emoji_id}</code>"
         elif is_only_emoji(text):
-            # KO'P EMOJI TO'PLASH — har bir emoji qo'shilaveradi
+            # ══ ASOSIY TUZATISH #2: Ko'p emoji to'plash ══
+            # Agar avval ham oddiy emoji prefix bo'lsa, yangi emoji QO'SHILADI
             if existing_emoji_prefix:
+                # Mavjud prefixga yangi emoji qo'shiladi
                 new_emoji_prefix = existing_emoji_prefix + text
             else:
+                # Birinchi marta emoji qo'yilmoqda
                 new_emoji_prefix = text
             new_text = f"{new_emoji_prefix} {existing_label}"
             EMOJI_IDS.pop(key, None)
-
-            DB.setdefault("btn_texts", {})[key] = new_text
-            save()
-
-            # editing_btn_key SAQLAB QOLAMIZ va emoji_menu O'CHIRMAYMIZ
-            # Shunda keyingi emoji ham shu tugmaga qo'shilaveradi
-            context.user_data["editing_btn_key"] = key
-            # emoji_menu ni o'chiramiz — aks holda bot tugma tanlash rejimine o'tib ketadi
-            context.user_data.pop("emoji_menu", None)
-
-            await sm(context.bot, uid,
-                f"✅ Emoji qo'shildi! Ko'rinish: <b>{new_text}</b>\n\n"
-                f"Yana emoji yuboring → yana qo'shiladi\n"
-                f"Matn yuboring → matn yangilanadi\n"
-                f"Tugmani tugallash uchun /done yozing yoki boshqa tugma tanlang")
-            return
-
+            eid_info = ""
         else:
             # Oddiy matn yoki emoji+matn — to'liq yangilanadi
             new_text = text
             EMOJI_IDS.pop(key, None)
-            DB.setdefault("btn_texts", {})[key] = new_text
-            save()
+            eid_info = ""
 
-            await sm(context.bot, uid,
-                f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n"
-                f"Ko'rinish: <code>{new_text}</code>")
-            context.user_data["emoji_menu"] = True
-            await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
-            return
+        DB.setdefault("btn_texts", {})[key] = new_text
+        save()
+
+        eid = get_eid(key)
+        if eid:
+            eid_info = f"\nCustom emoji ID: <code>{eid}</code>"
+
+        await sm(context.bot, uid,
+            f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n"
+            f"Ko'rinish: <code>{new_text}</code>{eid_info}\n\n"
+            f"Yana emoji qo'shish uchun emoji yuboring yoki boshqa tugmani tanlang 👇")
+        context.user_data["emoji_menu"] = True
+
+        # editing_btn_key ni saqlab qolmaymiz — tugma yana tanlanishi kerak
+        await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
+        return
 
     # ── 2. Emoji menyu rejimi — TUZATILGAN ──
     if uid == ADMIN_ID and context.user_data.get("emoji_menu"):
@@ -1287,21 +1216,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await sm(context.bot, uid, f"❌ Xato: {e}")
 
-async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin emoji qo'shishni tugatganda /done yozadi"""
-    uid = update.effective_user.id
-    if uid != ADMIN_ID:
-        return
-    key = context.user_data.pop("editing_btn_key", None)
-    context.user_data["emoji_menu"] = True
-    cur = DB.get("btn_texts", {}).get(key, "") if key else ""
-    if key and cur:
-        await sm(context.bot, uid,
-            f"✅ Saqlandi! Ko'rinish: <b>{cur}</b>\n\nTugmani tanlang:",
-            emoji_menu_kb())
-    else:
-        await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
-
 # ══════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════
@@ -1309,7 +1223,6 @@ async def done_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("done", done_command))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.Sticker.ALL, sticker_handler))
