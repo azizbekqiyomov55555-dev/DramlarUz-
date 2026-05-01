@@ -17,8 +17,8 @@ from telegram.ext import (
 # ====== KONFIGURATSIYA (Environment Variables) ======
 # Quyidagi qiymatlarni .env fayldan yoki tizim env dan o'qing.
 # Fly.io: `fly secrets set BOT_TOKEN=... ADMIN_ID=... JSONBIN_API_KEY=... JSONBIN_BIN_ID=...`
-BOT_TOKEN       = os.environ.get("BOT_TOKEN", "")
-ADMIN_ID        = int(os.environ.get("ADMIN_ID", "0") or 0)
+BOT_TOKEN       = "8259470121:AAE9ERkduaRquLCU8jGE-Ilb-jTySjgpDz4"
+ADMIN_ID        = "8537782289"
 JSONBIN_API_KEY = os.environ.get("JSONBIN_API_KEY", "")
 JSONBIN_BIN_ID  = os.environ.get("JSONBIN_BIN_ID", "")
 JSONBIN_URL     = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
