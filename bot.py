@@ -548,29 +548,33 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["editing_btn_key"] = key
             return
 
-        # Custom emoji entity bormi?
+        # Custom emoji entity bormi? (Instagram, premium emoji va h.k.)
         custom_emoji_id = extract_custom_emoji_id(update.message)
 
-        # Faqat emoji yuborilganmi?
-        if is_only_emoji(text):
-            # Mavjud matnning emoji prefiksini almashtir, matnni saqlat
-            existing = DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
-            label = strip_emoji_prefix(existing)
-            if not label:
-                label = DEFAULT_BTN.get(key, "")
+        # Mavjud matn va uning label qismi
+        existing = DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
+        label = strip_emoji_prefix(existing)
+        if not label:
+            label = DEFAULT_BTN.get(key, "")
+
+        if custom_emoji_id:
+            # Custom emoji (Instagram, premium): eski emoji o'chadi,
+            # icon_custom_emoji_id sifatida saqlanadi, matn sof qoladi
+            new_text = label
+            DB.setdefault("btn_emoji_ids", {})[key] = custom_emoji_id
+
+        elif is_only_emoji(text):
+            # Oddiy unicode emoji: prefiks sifatida qo'shiladi
             new_text = f"{text} {label}"
+            DB.setdefault("btn_emoji_ids", {}).pop(key, None)
+
         else:
-            # To'liq matn yoki emoji+matn — to'liq saqlat
+            # To'liq matn: to'liq saqlat, custom emoji o'chir
             new_text = text
+            DB.setdefault("btn_emoji_ids", {}).pop(key, None)
 
         # Saqlash
         DB.setdefault("btn_texts", {})[key] = new_text
-
-        # Custom emoji ID saqlash yoki o'chirish
-        if custom_emoji_id:
-            DB.setdefault("btn_emoji_ids", {})[key] = custom_emoji_id
-        else:
-            DB.setdefault("btn_emoji_ids", {}).pop(key, None)
 
         save()
 
