@@ -46,9 +46,9 @@ DEFAULT_PE = {
 }
 
 PE_LABELS = {
-    "film":"🎬 Kino","help":"🆘 Yordam","install":"📥 O'rnatish",
+    "film":"🎬 Kino","help":"Yordam","install":"📥 O'rnatish",
     "home":"🏠 Bosh menyu","add":"➕ Qo'shish","money":"💰 Pul",
-    "stats":"📊 Statistika","post":"📢 Post","lock":"🔒 Qulf",
+    "stats":"Statistika","post":"📢 Post","lock":"🔒 Qulf",
     "card":"💳 Karta","phone":"📲 Telefon","play":"▶️ O'ynatish",
     "share":"📤 Ulashish","check":"✅ Tasdiqlash","reply":"✉️ Javob",
     "watch":"🎬 Tomosha","emoji":"🎭 Emoji","back":"⬅️ Orqaga",
@@ -137,27 +137,27 @@ def rkb(rows, resize=True):
 
 def main_menu_kb():
     return rkb([[
-        rbtn("🆘 Yordam",            style="primary", ekey="help"),
-        rbtn("📥 Ilovani o'rnatish", style="success", ekey="install"),
+        rbtn("Yordam",            style="primary", ekey="help"),
+        rbtn("Ilovani o'rnatish", style="success", ekey="install"),
     ]])
 
 def admin_menu_kb():
     return rkb([
-        [rbtn("🎬 Kino joylash",        style="success", ekey="film"),
-         rbtn("➕ Qism qo'shish",        style="primary", ekey="add")],
-        [rbtn("💰 Qismni pullik qilish", style="danger",  ekey="money"),
-         rbtn("📊 Statistika",           style="primary", ekey="stats")],
-        [rbtn("📢 Kanalga post",         style="primary", ekey="post"),
-         rbtn("🔒 Majburiy kanal",       style="danger",  ekey="lock")],
-        [rbtn("💳 Karta raqami",         style="success", ekey="card"),
-         rbtn("📲 Ilova fayl/video",     style="primary", ekey="phone")],
-        [rbtn("🎭 Emoji sozlamalari",    style="primary", ekey="emoji")],
-        [rbtn("🏠 Asosiy menyu",         style="success", ekey="home")],
+        [rbtn("Kino joylash",        style="success", ekey="film"),
+         rbtn("Qism qo'shish",        style="primary", ekey="add")],
+        [rbtn("Qismni pullik qilish", style="danger",  ekey="money"),
+         rbtn("Statistika",           style="primary", ekey="stats")],
+        [rbtn("Kanalga post",         style="primary", ekey="post"),
+         rbtn("Majburiy kanal",       style="danger",  ekey="lock")],
+        [rbtn("Karta raqami",         style="success", ekey="card"),
+         rbtn("Ilova fayl/video",     style="primary", ekey="phone")],
+        [rbtn("Emoji sozlamalari",    style="primary", ekey="emoji")],
+        [rbtn("Asosiy menyu",         style="success", ekey="home")],
     ])
 
 def subscription_kb(channels):
-    rows = [[ibtn(f"📢 {c['title']}", url=c["url"], style="primary", ekey="post")] for c in channels]
-    rows.append([ibtn("✅ Tekshirish", data="check_sub", style="success", ekey="check")])
+    rows = [[ibtn(f"{c['title']}", url=c["url"], style="primary", ekey="post")] for c in channels]
+    rows.append([ibtn("Tekshirish", data="check_sub", style="success", ekey="check")])
     return ikb(rows)
 
 def movie_episodes_kb(movie, code, user_id):
@@ -168,41 +168,41 @@ def movie_episodes_kb(movie, code, user_id):
         ek=str(i+1); price=prices.get(ek)
         locked = price and not paid.get(f"{code}_{ek}")
         if locked:
-            rows.append([ibtn(f"🔒 {ek}-qism  💰 {price} so'm", data=f"ep|{code}|{ek}", style="danger",   ekey="lock")])
+            rows.append([ibtn(f"{ek}-qism  {price} so'm", data=f"ep|{code}|{ek}", style="danger",   ekey="lock")])
         else:
-            rows.append([ibtn(f"▶️ {ek}-qism",                  data=f"ep|{code}|{ek}", style="success", ekey="play")])
+            rows.append([ibtn(f"{ek}-qism",                  data=f"ep|{code}|{ek}", style="success", ekey="play")])
     return ikb(rows)
 
 def payment_admin_kb(pid):
     return ikb([[
-        ibtn("✅ Tasdiqlash",   data=f"pay_ok|{pid}", style="success", ekey="check"),
-        ibtn("❌ Bekor qilish", data=f"pay_no|{pid}", style="danger",  ekey="lock"),
+        ibtn("Tasdiqlash",   data=f"pay_ok|{pid}", style="success", ekey="check"),
+        ibtn("Bekor qilish", data=f"pay_no|{pid}", style="danger",  ekey="lock"),
     ]])
 
 def share_kb(url):
-    return ikb([[ibtn("📤 Do'stlarga ulashish", url=url, style="primary", ekey="share")]])
+    return ikb([[ibtn("Do'stlarga ulashish", url=url, style="primary", ekey="share")]])
 
 def channel_post_kb(bot_username, code):
-    return ikb([[ibtn("🎬 Tomosha qilish",
+    return ikb([[ibtn("Tomosha qilish",
         url=f"https://t.me/{bot_username}?start=code_{code}", style="success", ekey="watch")]])
 
 def reply_admin_kb(uid):
-    return ikb([[ibtn("✉️ Javob berish", data=f"reply|{uid}", style="primary", ekey="reply")]])
+    return ikb([[ibtn("Javob berish", data=f"reply|{uid}", style="primary", ekey="reply")]])
 
 def stats_kb():
-    return ikb([[ibtn("🔄 Yangilash", data="refresh_stats", style="primary", ekey="stats")]])
+    return ikb([[ibtn("Yangilash", data="refresh_stats", style="primary", ekey="stats")]])
 
 def movie_added_kb(code):
     return ikb([[
-        ibtn("📹 Qism qo'shish",  data=f"quick_add_ep|{code}", style="success", ekey="add"),
-        ibtn("💰 Narx belgilash", data=f"quick_price|{code}",  style="primary", ekey="price"),
+        ibtn("Qism qo'shish",  data=f"quick_add_ep|{code}", style="success", ekey="add"),
+        ibtn("Narx belgilash", data=f"quick_price|{code}",  style="primary", ekey="price"),
     ]])
 
 def payment_sent_kb():
-    return ikb([[ibtn("⏳ Tasdiqlanishini kuting", data="waiting_confirm", style="primary", ekey="check")]])
+    return ikb([[ibtn("Tasdiqlanishini kuting", data="waiting_confirm", style="primary", ekey="check")]])
 
 def help_kb():
-    return ikb([[ibtn("🏠 Bosh menyu", data="go_home", style="success", ekey="home")]])
+    return ikb([[ibtn("Bosh menyu", data="go_home", style="success", ekey="home")]])
 
 def emoji_list_kb():
     rows=[]; keys=list(PE_LABELS.keys())
@@ -214,16 +214,16 @@ def emoji_list_kb():
             row.append(ibtn(f"{PE_LABELS.get(key,key)} [{short}]",
                             data=f"emoji_edit|{key}", style="primary", ekey="emoji"))
         rows.append(row)
-    rows.append([ibtn("🔄 Hammasini tiklash", data="emoji_reset_all", style="danger",  ekey="reset")])
-    rows.append([ibtn("✅ Yopish",            data="emoji_close",     style="success", ekey="close")])
+    rows.append([ibtn("Hammasini tiklash", data="emoji_reset_all", style="danger",  ekey="reset")])
+    rows.append([ibtn("Yopish",            data="emoji_close",     style="success", ekey="close")])
     return ikb(rows)
 
 def emoji_single_kb(key):
     cur=DB.get("emoji_ids",{}).get(key) or DEFAULT_PE.get(key,"")
     default=DEFAULT_PE.get(key,"")
     kb=ikb([
-        [ibtn("🔄 Defaultga qaytarish", data=f"emoji_reset|{key}", style="danger",  ekey="reset")],
-        [ibtn("⬅️ Orqaga",              data="emoji_back",          style="success", ekey="back")],
+        [ibtn("Defaultga qaytarish", data=f"emoji_reset|{key}", style="danger",  ekey="reset")],
+        [ibtn("Orqaga",              data="emoji_back",          style="success", ekey="back")],
     ])
     return kb, cur, default
 
@@ -430,19 +430,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user=update.effective_user; uid=user.id; text=(update.message.text or "").strip()
-    ADMIN_BTNS=("🎬 Kino joylash","➕ Qism qo'shish","💰 Qismni pullik qilish",
-                "📊 Statistika","📢 Kanalga post","🔒 Majburiy kanal",
-                "💳 Karta raqami","📲 Ilova fayl/video","🏠 Asosiy menyu","🎭 Emoji sozlamalari")
+    ADMIN_BTNS=("Kino joylash","Qism qo'shish","Qismni pullik qilish",
+                "Statistika","Kanalga post","Majburiy kanal",
+                "Karta raqami","Ilova fayl/video","Asosiy menyu","Emoji sozlamalari")
     if uid==ADMIN_ID and text in ADMIN_BTNS:
-        if text=="🎭 Emoji sozlamalari":
+        if text=="Emoji sozlamalari":
             await sm(context.bot,uid,
                 "🎭 <b>Emoji sozlamalari</b>\n\nO'zgartirmoqchi bo'lgan emoji tugmasini tanlang.\n<i>Qavs ichida — joriy ID ning oxirgi 6 raqami</i>",
                 emoji_list_kb()); return
         await admin_buttons(update,context,text); return
-    if text=="🆘 Yordam":
+    if text=="Yordam":
         await sm(context.bot,uid,"✍️ Savol yoki muammoingizni <b>matn, rasm yoki video</b> ko'rinishida yuboring.\nAdmin tez orada javob beradi.",help_kb())
         context.user_data["awaiting_help"]=True; return
-    if text=="📥 Ilovani o'rnatish":
+    if text=="Ilovani o'rnatish":
         s=DB.get("settings",{}); f_id=s.get("install_file_id"); v_id=s.get("install_video_id")
         if not f_id and not v_id: await sm(context.bot,uid,"⏳ Admin hali ilova fayl/video joylamagan."); return
         if v_id: await sv(context.bot,uid,v_id,"📲 <b>Ilovani o'rnatish videosi</b>")
@@ -481,29 +481,29 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def admin_buttons(update, context, text):
     uid=update.effective_user.id
-    if text=="🏠 Asosiy menyu": await sm(context.bot,uid,"🏠 Asosiy menyu",main_menu_kb()); return
-    if text=="📊 Statistika":
+    if text=="Asosiy menyu": await sm(context.bot,uid,"Asosiy menyu",main_menu_kb()); return
+    if text=="Statistika":
         u=len(DB.get("users",{})); m=len(DB.get("movies",{})); v=DB.get("stats",{}).get("total_views",0)
         await sm(context.bot,uid,f"📊 <b>Statistika</b>\n\n👥 Foydalanuvchilar: <b>{u}</b>\n🎬 Kinolar: <b>{m}</b>\n👁 Jami ko'rishlar: <b>{v}</b>",stats_kb()); return
-    if text=="💳 Karta raqami":
+    if text=="Karta raqami":
         context.user_data["admin_state"]="set_card"; cur=DB.get("card_number") or "Kiritilmagan"
         await sm(context.bot,uid,f"💳 Joriy karta: <code>{cur}</code>\n\nYangi karta raqamini yuboring:"); return
-    if text=="🎬 Kino joylash":
+    if text=="Kino joylash":
         context.user_data["admin_state"]="add_movie_code"
         await sm(context.bot,uid,"🎬 Kino kodini kiriting (masalan: AVATAR yoki 001):"); return
-    if text=="➕ Qism qo'shish":
+    if text=="Qism qo'shish":
         context.user_data["admin_state"]="add_ep_code"
         await sm(context.bot,uid,"🎬 Qism qo'shmoqchi bo'lgan kino kodini kiriting:"); return
-    if text=="💰 Qismni pullik qilish":
+    if text=="Qismni pullik qilish":
         context.user_data["admin_state"]="set_price_code"
         await sm(context.bot,uid,"🎬 Kino kodini kiriting:"); return
-    if text=="📲 Ilova fayl/video":
+    if text=="Ilova fayl/video":
         context.user_data["admin_state"]="set_install"
         await sm(context.bot,uid,"📲 Ilova fayl yoki video yuboring:"); return
-    if text=="🔒 Majburiy kanal":
+    if text=="Majburiy kanal":
         context.user_data["admin_state"]="add_channel"
         await sm(context.bot,uid,"📢 Kanal username va nomi yuboring:\n<code>@username | Kanal nomi | https://t.me/username</code>"); return
-    if text=="📢 Kanalga post":
+    if text=="Kanalga post":
         context.user_data["admin_state"]="post_channel_code"
         await sm(context.bot,uid,"🎬 Post qilmoqchi bo'lgan kino kodini kiriting:"); return
 
