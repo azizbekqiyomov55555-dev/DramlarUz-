@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 Kino Bot - TUZATILGAN VERSIYA v2
-TUZATISHLAR:
-1. emoji_menu rejimida tugmalar o'z vazifasini bajaradi
-2. Bir tugmaga ketma-ket emoji yuborganda to'planib boradi (2 ta = 2 ta emoji)
 """
-import logging, asyncio, json, time, re, os
+
+import logging
+import asyncio
+import json
+import time
+import re
+import os
 from datetime import datetime
+
 import requests
 from telegram import Update
 from telegram.ext import (
@@ -15,25 +19,48 @@ from telegram.ext import (
 )
 
 # ====== KONFIGURATSIYA (Environment Variables) ======
-# Quyidagi qiymatlarni .env fayldan yoki tizim env dan o'qing.
-# Fly.io: `fly secrets set BOT_TOKEN=... ADMIN_ID=... JSONBIN_API_KEY=... JSONBIN_BIN_ID=...`
-import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+ADMIN_ID_RAW = os.getenv("ADMIN_ID")
 JSONBIN_API_KEY = os.getenv("JSONBIN_API_KEY")
 JSONBIN_BIN_ID = os.getenv("JSONBIN_BIN_ID")
-JSONBIN_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
-if not BOT_TOKEN or not ADMIN_ID or not JSONBIN_API_KEY or not JSONBIN_BIN_ID:
+
+# Tekshiruv
+missing_vars = []
+
+if not BOT_TOKEN:
+    missing_vars.append("BOT_TOKEN")
+
+if not ADMIN_ID_RAW:
+    missing_vars.append("ADMIN_ID")
+
+if not JSONBIN_API_KEY:
+    missing_vars.append("JSONBIN_API_KEY")
+
+if not JSONBIN_BIN_ID:
+    missing_vars.append("JSONBIN_BIN_ID")
+
+if missing_vars:
     raise SystemExit(
-        "XATOLIK: Quyidagi environment variable lar o'rnatilmagan:\n"
-        "  BOT_TOKEN, ADMIN_ID, JSONBIN_API_KEY, JSONBIN_BIN_ID\n"
-        "Misol uchun .env fayl yarating yoki `fly secrets set ...` ishlating."
+        "XATOLIK: Quyidagi environment variables topilmadi: "
+        + ", ".join(missing_vars)
     )
 
-logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)
+# ADMIN_ID ni xavfsiz int qilish
+try:
+    ADMIN_ID = int(ADMIN_ID_RAW)
+except ValueError:
+    raise SystemExit("XATOLIK: ADMIN_ID faqat raqam bo‘lishi kerak.")
 
+JSONBIN_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
+
+# Logging
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
 DEFAULT_BTN = {
     "yordam":"Yordam",
     "install":"Ilovani o'rnatish",
