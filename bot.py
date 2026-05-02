@@ -948,8 +948,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["bc_btn_name"] = text
             context.user_data["bc_adding_btn"] = "url"
             await sm(context.bot, uid,
-                f"Tugma nomi: <b>{text}</b>\n\nEndi tugma linkini kiriting (https:// bilan):",
-                parse_mode="HTML")
+                f"Tugma nomi: <b>{text}</b>\n\nEndi tugma linkini kiriting (https:// bilan):")
         elif stage == "url":
             btn_text = context.user_data.pop("bc_btn_name", "Tugma")
             context.user_data.pop("bc_adding_btn", None)
@@ -1032,8 +1031,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📢 <b>Barchaga xabar yuborish</b>\n\n"
                 "Xabar yuboring — matn, rasm yoki video.\n"
                 "Emoji to'g'ridan-to'g'ri forward bo'ladi.\n\n"
-                "Bekor qilish uchun /start bosing.",
-                parse_mode="HTML")
+                "Bekor qilish uchun /start bosing.")
             context.user_data["admin_state"] = "broadcast_msg"
             return
         context.user_data.pop("emoji_menu", None)
