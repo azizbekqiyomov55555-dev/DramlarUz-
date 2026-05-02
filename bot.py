@@ -399,10 +399,12 @@ async def sp(bot, chat_id, photo, caption, markup=None, pm="HTML"):
         kw["reply_markup"] = markup
     return await bot.send_photo(**kw)
 
-async def sv(bot, chat_id, video, caption, markup=None, pm="HTML"):
+async def sv(bot, chat_id, video, caption, markup=None, pm="HTML", protect=False):
     kw = {"chat_id": chat_id, "video": video, "caption": caption, "parse_mode": pm}
     if markup:
         kw["reply_markup"] = markup
+    if protect:
+        kw["protect_content"] = True
     return await bot.send_video(**kw)
 
 # ══════════════════════════════════════════════════════════
@@ -834,7 +836,7 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = f"🎬 <b>{movie.get('title')}</b>\n📺 Qism: <b>{ep}</b>"
 
     try:
-        await sv(context.bot, q.from_user.id, eps[idx], caption, share_kb(share_url))
+        await sv(context.bot, q.from_user.id, eps[idx], caption, share_kb(share_url), protect=True)
     except Exception as e:
         logger.error(f"Video yuborishda xato: {e}")
         await sm(context.bot, q.from_user.id, f"❌ Video yuborishda xato: {e}")
@@ -896,7 +898,7 @@ async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, pay["user_id"],
                 "<b>Admin to'lovingizni tasdiqladi!</b>")
             await sv(context.bot, pay["user_id"], eps[idx],
-                f"<b>{movie.get('title')}</b>\nQism: {pay['ep']}")
+                f"<b>{movie.get('title')}</b>\nQism: {pay['ep']}", protect=True)
             async def update_pay_stats():
                 movie.setdefault("views", {})
                 movie["views"][pay["ep"]] = movie["views"].get(pay["ep"], 0) + 1
