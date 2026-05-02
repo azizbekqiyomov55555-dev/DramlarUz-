@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v5
-TUZATILGAN XATOLAR:
-1. Matnli broadcast endi ishlaydi (step-5 bloker o'chirildi)
-2. EMOJI_IDS endi DB'ga saqlanadi (bot qayta ishlaganda yo'qolmaydi)
-3. asyncio.ensure_future → asyncio.create_task (zamonaviy usul)
-4. Kino qo'shishda poster yuklash imkoniyati qo'shildi
-5. ep_movie_code None bo'lganda xatolik tuzatildi
-6. Broadcast preview ikki marta yuborilmaydigan qilindi
+Kino Bot - v6
+YANGI:
+1. Qismlar sahifalar bo'yicha ko'rsatiladi (5 tadan)
+   ➡️ Boshqa qismlar / ⬅️ Oldingi qismlar tugmalari
+AVVALGI TUZATISHLAR (v5):
+2. Matnli broadcast ishlaydi
+3. EMOJI_IDS DB'ga saqlanadi
+4. asyncio.create_task ishlatiladi
+5. Kino qo'shishda poster imkoniyati
+6. ep_movie_code None xatoligi tuzatildi
 """
 import logging, asyncio, json, time, re
 from datetime import datetime
@@ -330,19 +332,47 @@ def subscription_kb(channels):
     return ikb(rows)
 
 
-def movie_episodes_kb(movie, code, user_id):
+PAGE_SIZE = 5  # har sahifada nechta qism ko'rinadi
+
+def movie_episodes_kb(movie, code, user_id, page: int = 0):
+    """
+    Qismlarni PAGE_SIZE tadan sahifalab ko'rsatadi.
+    Navigatsiya tugmalari:
+      ⬅️ Oldingi qismlar  |  ➡️ Boshqa qismlar
+    """
     eps = movie.get("episodes", [])
     prices = movie.get("prices", {})
     paid = DB["users"].get(str(user_id), {}).get("paid_episodes", {})
+    total = len(eps)
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+
+    start = page * PAGE_SIZE
+    end   = min(start + PAGE_SIZE, total)
+
     rows = []
-    for i in range(len(eps)):
+    for i in range(start, end):
         ek = str(i + 1)
         price = prices.get(ek)
         locked = price and not paid.get(f"{code}_{ek}")
         if locked:
-            rows.append([ibtn(f"{ek}-qism  💰 {price} so'm", data=f"ep|{code}|{ek}", style="danger")])
+            rows.append([ibtn(f"{ek}-qism  💰 {price} so'm",
+                              data=f"ep|{code}|{ek}", style="danger")])
         else:
-            rows.append([ibtn(f"{ek}-qism", data=f"ep|{code}|{ek}", style="success")])
+            rows.append([ibtn(f"{ek}-qism",
+                              data=f"ep|{code}|{ek}", style="success")])
+
+    # Navigatsiya qatori
+    nav = []
+    if page > 0:
+        nav.append(ibtn("⬅️ Oldingi qismlar",
+                        data=f"page|{code}|{page - 1}", style="primary"))
+    if page < total_pages - 1:
+        nav.append(ibtn("➡️ Boshqa qismlar",
+                        data=f"page|{code}|{page + 1}", style="primary"))
+    if nav:
+        rows.append(nav)
+
     return ikb(rows)
 
 
@@ -496,9 +526,11 @@ async def send_movie_menu(src, context, code):
     if not eps:
         await sm(context.bot, chat_id, "⏳ Bu kinoga hali qism yuklanmagan.")
         return
-    markup = movie_episodes_kb(movie, code, user_id)
+    markup = movie_episodes_kb(movie, code, user_id, page=0)
+    total_pages = max(1, (len(eps) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page_info = f"  (1/{total_pages} sahifa)" if total_pages > 1 else ""
     caption = (f"🎬 <b>{movie.get('title', 'Kino')}</b>\n"
-               f"📺 Qismlar soni: <b>{len(eps)} ta</b>\n\n"
+               f"📺 Qismlar soni: <b>{len(eps)} ta</b>{page_info}\n\n"
                f"👇 Qaysi qismni ko'rmoqchisiz?")
     poster = movie.get("poster_file_id")
     try:
@@ -635,6 +667,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "check_sub":
         await cb_check_sub(update, context)
+
+    elif data.startswith("page|"):
+        await cb_page(update, context)
 
     elif data.startswith("ep|"):
         await cb_episode(update, context)
@@ -823,6 +858,43 @@ async def cb_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, f"✅ Broadcast tugadi! Yuborildi: {ok}, Xato: {fail}")
         await sm(context.bot, uid, "Admin panel", admin_menu_kb())
         return
+
+
+async def cb_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qismlar sahifasi navigatsiyasi — ⬅️ / ➡️ tugmalari."""
+    q = update.callback_query
+    await q.answer()
+    parts = q.data.split("|")
+    if len(parts) != 3:
+        return
+    _, code, page_str = parts
+    try:
+        page = int(page_str)
+    except ValueError:
+        return
+
+    movie = DB["movies"].get(code)
+    if not movie:
+        await q.answer("Kino topilmadi", show_alert=True)
+        return
+
+    user_id = q.from_user.id
+    eps = movie.get("episodes", [])
+    markup = movie_episodes_kb(movie, code, user_id, page=page)
+    total_pages = max(1, (len(eps) + PAGE_SIZE - 1) // PAGE_SIZE)
+    caption = (f"🎬 <b>{movie.get('title', 'Kino')}</b>\n"
+               f"📺 Qismlar soni: <b>{len(eps)} ta</b>  "
+               f"({page + 1}/{total_pages} sahifa)\n\n"
+               f"👇 Qaysi qismni ko'rmoqchisiz?")
+    try:
+        await q.edit_message_caption(caption=caption, parse_mode="HTML",
+                                     reply_markup=markup)
+    except Exception:
+        try:
+            await q.edit_message_text(caption, parse_mode="HTML",
+                                      reply_markup=markup)
+        except Exception as e:
+            logger.error(f"cb_page edit error: {e}")
 
 
 async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
