@@ -525,43 +525,89 @@ async def sv(bot, chat_id, video, caption, markup=None, pm="HTML", protect=False
 # YORDAMCHI
 # ══════════════════════════════════════════════════════════
 
+async def _get_member_safe(bot, target, user_id, timeout=8):
+    """
+    get_chat_member ni timeout bilan chaqiradi.
+    Agar 8 soniyada javob kelmasa — TimeoutError ko'taradi.
+    target: @username (str) yoki chat_id (int)
+    """
+    return await asyncio.wait_for(
+        bot.get_chat_member(target, user_id),
+        timeout=timeout
+    )
+
+
+async def _resolve_chat_id(bot, ch: dict) -> int | None:
+    """
+    Public/request kanal uchun username dan chat_id ni bir marta oladi va keshlayd.
+    Keyingi safar to'g'ridan-to'g'ri int(chat_id) ishlatiladi — username lookup yo'q.
+    """
+    if ch.get("chat_id"):
+        try:
+            return int(ch["chat_id"])
+        except Exception:
+            return None
+    # chat_id yo'q — username orqali resolve qilamiz
+    username = ch.get("username", "").strip()
+    if not username:
+        return None
+    if not username.startswith("@"):
+        username = "@" + username
+    try:
+        chat = await asyncio.wait_for(bot.get_chat(username), timeout=8)
+        # Kesh: DB ga yozamiz, keyingi safar tez ishlaydi
+        ch["chat_id"] = str(chat.id)
+        save()
+        logger.info(f"Resolved {username} → {chat.id}")
+        return chat.id
+    except Exception as e:
+        logger.warning(f"resolve_chat_id {username}: {e}")
+        return None
+
+
 async def check_subscription(user_id, bot):
     not_subbed = []
-    for ch in DB.get("channels", []):
+    channels = DB.get("channels", [])
+    if not channels:
+        return []
+
+    for ch in channels:
         ctype = ch.get("type", "public")
         try:
             if ctype == "public":
-                username = ch["username"]
-                if not username.startswith("@"):
-                    username = "@" + username
-                member = await bot.get_chat_member(username, user_id)
+                # chat_id mavjud bo'lsa ishlatamiz, yo'q bo'lsa username
+                cid = await _resolve_chat_id(bot, ch)
+                if cid is None:
+                    not_subbed.append(ch)
+                    continue
+                member = await _get_member_safe(bot, cid, user_id)
                 if member.status in ("left", "kicked"):
                     not_subbed.append(ch)
 
             elif ctype == "private":
                 chat_id = ch.get("chat_id")
-                if chat_id:
-                    member = await bot.get_chat_member(int(chat_id), user_id)
-                    if member.status in ("left", "kicked"):
-                        not_subbed.append(ch)
-                else:
-                    not_subbed.append(ch)
-
-            elif ctype == "request":
-                username = ch.get("username", "")
-                chat_id  = ch.get("chat_id")
-                target   = int(chat_id) if chat_id else (
-                    ("@" + username.lstrip("@")) if username else None
-                )
-                if target is None:
+                if not chat_id:
                     not_subbed.append(ch)
                     continue
-                member = await bot.get_chat_member(target, user_id)
+                member = await _get_member_safe(bot, int(chat_id), user_id)
                 if member.status in ("left", "kicked"):
                     not_subbed.append(ch)
 
+            elif ctype == "request":
+                cid = await _resolve_chat_id(bot, ch)
+                if cid is None:
+                    not_subbed.append(ch)
+                    continue
+                member = await _get_member_safe(bot, cid, user_id)
+                if member.status in ("left", "kicked"):
+                    not_subbed.append(ch)
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Sub check TIMEOUT: {ch.get('title', ch)}")
+            # Timeout bo'lsa — foydalanuvchini to'xtatmaymiz, o'tkazib yuboramiz
+            # (kanal muammosi, foydalanuvchi aybdor emas)
         except Exception as e:
-            logger.warning(f"Sub check {ch}: {e}")
+            logger.warning(f"Sub check {ch.get('title', ch)}: {e}")
             not_subbed.append(ch)
     return not_subbed
 
