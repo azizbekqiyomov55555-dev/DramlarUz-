@@ -426,15 +426,16 @@ async def send_movie_menu(src, context, code):
     chat_id = src.effective_user.id if hasattr(src, "effective_user") else src.from_user.id
     user_id = chat_id
     if not movie:
-        await sm(context.bot, chat_id, "Bunday kodli kino topilmadi.")
+        await sm(context.bot, chat_id, "❌ Bunday kodli kino topilmadi.")
         return
     eps = movie.get("episodes", [])
     if not eps:
-        await sm(context.bot, chat_id, "Bu kinoga hali qism yuklanmagan.")
+        await sm(context.bot, chat_id, "⏳ Bu kinoga hali qism yuklanmagan.")
         return
     markup = movie_episodes_kb(movie, code, user_id)
-    caption = (f"<b>{movie.get('title', 'Kino')}</b>\n"
-               f"Qismlar soni: <b>{len(eps)}</b>\n\nQaysi qismni ko'rmoqchisiz?")
+    caption = (f"🎬 <b>{movie.get('title', 'Kino')}</b>\n"
+               f"📺 Qismlar soni: <b>{len(eps)} ta</b>\n\n"
+               f"👇 Qaysi qismni ko'rmoqchisiz?")
     poster = movie.get("poster_file_id")
     try:
         if poster:
@@ -544,13 +545,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ns = await check_subscription(user.id, context.bot)
     if ns:
         await sm(context.bot, user.id,
-            "Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
+            "⚠️ Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling 👇\n"
+            "Obuna bo'lgach <b>Tekshirish</b> tugmasini bosing.",
             subscription_kb(ns))
         return
 
-    hello = (f"Assalomu alaykum, <b>{user.full_name}</b>!\n\n"
-             f"<b>Kino botga xush kelibsiz!</b>\n\n"
-             f"Kino <b>raqamini</b> yuboring — video darhol chiqadi.")
+    hello = (f"Assalomu alaykum, <b>{user.full_name}</b>! 👋\n\n"
+             f"🎬 <b>Kino botga xush kelibsiz!</b>\n\n"
+             f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡")
     is_admin = (user.id == ADMIN_ID)
     await sm(context.bot, user.id, hello, main_menu_kb(is_admin=is_admin))
 
@@ -595,6 +597,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "go_home":
         await q.answer()
+        await context.bot.send_chat_action(uid, action="typing")
         try:
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
@@ -662,6 +665,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["admin_state"] = "add_ep_video"
             context.user_data["ep_movie_code"] = code
             await q.answer()
+            await context.bot.send_chat_action(uid, action="typing")
             await sm(context.bot, uid, f"<b>{code}</b> uchun video yuboring:")
         else:
             await q.answer("Ruxsat yo'q", show_alert=True)
@@ -672,6 +676,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["admin_state"] = "set_price_ep"
             context.user_data["price_movie_code"] = code
             await q.answer()
+            await context.bot.send_chat_action(uid, action="typing")
             await sm(context.bot, uid, "Qism raqamini kiriting:")
         else:
             await q.answer("Ruxsat yo'q", show_alert=True)
@@ -748,12 +753,13 @@ async def cb_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+    await context.bot.send_chat_action(q.from_user.id, action="typing")
     ns = await check_subscription(q.from_user.id, context.bot)
     if ns:
-        await q.answer("Hali obuna bo'lmagansiz!", show_alert=True)
+        await q.answer("Hali obuna bo'lmagansiz! ❌", show_alert=True)
         return
     try:
-        await q.edit_message_text("Barcha kanallarga obuna bo'ldingiz!")
+        await q.edit_message_text("✅ Zo'r! Barcha kanallarga obuna bo'ldingiz!")
     except Exception:
         pass
     pending = context.user_data.pop("pending_code", None)
@@ -761,7 +767,7 @@ async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_movie_menu(q, context, pending)
     else:
         await sm(context.bot, q.from_user.id,
-            f"Xush kelibsiz, <b>{q.from_user.full_name}</b>!\nKino raqamini yuboring.",
+            f"🎉 Xush kelibsiz, <b>{q.from_user.full_name}</b>!\n\nKino kodini yuboring 👇",
             main_menu_kb(is_admin=(q.from_user.id == ADMIN_ID)))
 
 
@@ -783,9 +789,12 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if price and not paid.get(f"{code}_{ep}"):
         card = DB.get("card_number") or "Admin karta raqamini o'rnatmagan"
-        txt = (f"<b>Bu qism pullik</b>\n\nKino: <b>{movie.get('title')}</b>\n"
-               f"Qism: <b>{ep}</b>\nNarxi: <b>{price} so'm</b>\n\n"
-               f"Karta raqami:\n<code>{card}</code>\n\nTo'lov qiling va chek rasmini yuboring")
+        txt = (f"🔒 <b>Bu qism pullik</b>\n\n"
+               f"🎬 Kino: <b>{movie.get('title')}</b>\n"
+               f"📺 Qism: <b>{ep}</b>\n"
+               f"💰 Narxi: <b>{price} so'm</b>\n\n"
+               f"💳 Karta raqami:\n<code>{card}</code>\n\n"
+               f"To'lov qiling va chek rasmini yuboring 👇")
         context.user_data["awaiting_check"] = {"code": code, "ep": ep, "price": price}
         await sm(context.bot, q.from_user.id, txt, payment_sent_kb())
         return
@@ -799,7 +808,10 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── TEZLIK: avval videoni yubor, keyin DB ni background da saqlа ──
     bot_me = await context.bot.get_me()
     share_url = f"https://t.me/share/url?url=https://t.me/{bot_me.username}?start=code_{code}"
-    caption = (f"<b>{movie.get('title')}</b>\nQism: <b>{ep}</b>")
+    caption = (f"🎬 <b>{movie.get('title')}</b>\n📺 Qism: <b>{ep}</b>")
+
+    # "Fayl yuborilmoqda..." ko'rsatiladi
+    await context.bot.send_chat_action(q.from_user.id, action="upload_video")
 
     # Video DARHOL yuboriladi
     await sv(context.bot, q.from_user.id, eps[idx], caption, share_kb(share_url))
@@ -1005,7 +1017,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, f"❌ Xato: {e}")
         return
 
-    # ── 5. Admin tugmalarini aniqlash ──
+    # ── 5. Broadcast rejimida boshqa tugmalarni bloklash ──
+    if uid == ADMIN_ID and context.user_data.get("admin_state") == "broadcast_msg":
+        await sm(context.bot, uid,
+            "📢 Hozir broadcast rejimdasiz!\n\n"
+            "Xabar (matn, rasm yoki video) yuboring.\n"
+            "Bekor qilish uchun /start bosing.")
+        return
+
+    # ── 6. Admin tugmalarini aniqlash ──
     all_admin_btns = {bt(k) for k in [
         "kino_joy", "qism_qosh", "pullik", "stat",
         "kanal_post", "maj_kanal", "karta", "ilova",
@@ -1041,9 +1061,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── 6. Foydalanuvchi tugmalari ──
     if text == bt("yordam"):
+        await context.bot.send_chat_action(uid, action="typing")
         await sm(context.bot, uid,
-            "Savol yoki muammoingizni matn, rasm yoki video ko'rinishida yuboring.\n"
-            "Admin tez orada javob beradi.", help_kb())
+            "💬 <b>Yordam kerakmi?</b>\n\n"
+            "Savol yoki muammoingizni <b>matn, rasm yoki video</b> ko'rinishida yuboring.\n"
+            "Admin tez orada javob beradi! 🙂", help_kb())
         context.user_data["awaiting_help"] = True
         return
 
@@ -1055,8 +1077,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, "Admin hali ilova fayl/video joylamagan.")
             return
         if v_id:
+            await context.bot.send_chat_action(uid, action="upload_video")
             await sv(context.bot, uid, v_id, "<b>Ilovani o'rnatish videosi</b>")
         if f_id:
+            await context.bot.send_chat_action(uid, action="upload_document")
             await context.bot.send_document(
                 uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML")
         return
@@ -1091,13 +1115,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 subscription_kb(ns))
             context.user_data["pending_code"] = code
             return
+        await context.bot.send_chat_action(uid, action="upload_video")
         await send_movie_menu(update, context, code)
     else:
-        await sm(context.bot, uid, "Kino raqami topilmadi.\nTo'g'ri raqamni yuboring.")
+        await sm(context.bot, uid, "❌ Bunday kod topilmadi.\n\nTo'g'ri kino kodini yuboring 👇")
 
 
 async def admin_buttons(update, context, text):
     uid = update.effective_user.id
+    await context.bot.send_chat_action(uid, action="typing")
 
     if text == bt("boshqarish"):
         context.user_data.pop("admin_state", None)
