@@ -461,7 +461,8 @@ def clear_admin_state(context):
                 "price_movie_code", "price_ep", "post_code",
                 "reply_to", "awaiting_help", "awaiting_check",
                 "editing_btn_key", "emoji_menu",
-                "bc_msg", "bc_buttons", "bc_adding_btn"]:
+                "bc_msg", "bc_buttons", "bc_adding_btn",
+                "del_movie_code"]:
         context.user_data.pop(key, None)
 
 # ══════════════════════════════════════════════════════════
@@ -1239,7 +1240,7 @@ async def admin_state_handler(update, context, text):
         await send_broadcast_preview(context.bot, uid, bc)
         return True
 
-    # ── FIX: Kino o'chirish — faqat kod kiritiladi ──
+    # ── Kino o'chirish — kod kiritiladi, keyin qism so'raladi ──
     if state == "delete_movie_code":
         code = text.upper().strip()
         if code not in DB["movies"]:
@@ -1248,12 +1249,87 @@ async def admin_state_handler(update, context, text):
             return True
         movie = DB["movies"][code]
         title = movie.get("title", code)
-        del DB["movies"][code]
-        save()
-        context.user_data.pop("admin_state")
+        eps = movie.get("episodes", [])
+        context.user_data["del_movie_code"] = code
+        context.user_data["admin_state"] = "delete_movie_ep"
+
+        ep_list = "\n".join([f"  {i+1}-qism" for i in range(len(eps))]) if eps else "  (qismlar yo'q)"
         await sm(context.bot, uid,
-            f"✅ <b>{title}</b> (<code>{code}</code>) o'chirildi!",
-            admin_menu_kb())
+            f"🎬 <b>{title}</b>  |  <code>{code}</code>\n"
+            f"📺 Qismlar soni: <b>{len(eps)} ta</b>\n\n"
+            f"{ep_list}\n\n"
+            f"Qaysi qismni o'chirmoqchisiz?\n"
+            f"• Raqam kiriting (masalan: <code>3</code>)\n"
+            f"• Barcha qismlarni o'chirish: <code>hammasi</code>\n"
+            f"• Kinoni butunlay o'chirish: <code>kino</code>")
+        return True
+
+    if state == "delete_movie_ep":
+        code = context.user_data.get("del_movie_code")
+        movie = DB["movies"].get(code)
+        if not movie:
+            await sm(context.bot, uid, "❌ Kino topilmadi. /start bosing.")
+            context.user_data.pop("admin_state", None)
+            context.user_data.pop("del_movie_code", None)
+            return True
+
+        title = movie.get("title", code)
+        eps = movie.get("episodes", [])
+        val = text.strip().lower()
+
+        if val == "kino":
+            del DB["movies"][code]
+            save()
+            context.user_data.pop("admin_state", None)
+            context.user_data.pop("del_movie_code", None)
+            await sm(context.bot, uid,
+                f"✅ <b>{title}</b> (<code>{code}</code>) butunlay o'chirildi!",
+                admin_menu_kb())
+            return True
+
+        if val == "hammasi":
+            DB["movies"][code]["episodes"] = []
+            DB["movies"][code]["prices"] = {}
+            save()
+            context.user_data.pop("admin_state", None)
+            context.user_data.pop("del_movie_code", None)
+            await sm(context.bot, uid,
+                f"✅ <b>{title}</b> kinoning barcha qismlari o'chirildi!",
+                admin_menu_kb())
+            return True
+
+        if val.isdigit():
+            ep_num = int(val)
+            if ep_num < 1 or ep_num > len(eps):
+                await sm(context.bot, uid,
+                    f"❌ <b>{ep_num}</b>-qism mavjud emas. 1–{len(eps)} oralig'ida kiriting:")
+                return True
+            idx = ep_num - 1
+            DB["movies"][code]["episodes"].pop(idx)
+            # narxlarni qayta tartiblaymiz
+            old_prices = movie.get("prices", {})
+            new_prices = {}
+            for k, v in old_prices.items():
+                try:
+                    k_int = int(k)
+                    if k_int < ep_num:
+                        new_prices[k] = v
+                    elif k_int > ep_num:
+                        new_prices[str(k_int - 1)] = v
+                except Exception:
+                    pass
+            DB["movies"][code]["prices"] = new_prices
+            save()
+            context.user_data.pop("admin_state", None)
+            context.user_data.pop("del_movie_code", None)
+            await sm(context.bot, uid,
+                f"✅ <b>{title}</b> — <b>{ep_num}-qism</b> o'chirildi!\n"
+                f"Qolgan qismlar: <b>{len(DB['movies'][code]['episodes'])} ta</b>",
+                admin_menu_kb())
+            return True
+
+        await sm(context.bot, uid,
+            "❌ Noto'g'ri. Qism raqami, <code>hammasi</code> yoki <code>kino</code> kiriting:")
         return True
 
     if state == "set_card":
