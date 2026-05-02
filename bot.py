@@ -1,18 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v9
-YANGILIKLAR (v9):
-1. Maxfiy kanal qo'shish (invite link orqali)
-2. So'rovli kanal qo'shish (join_request - ChatJoinRequest)
-3. Majburiy kanallar ichida kanalni o'chirish
+Kino Bot - v9 FIXED
+TUZATISHLAR:
+1. Kanal qo'shish ishlamayotgan muammo hal qilindi
+   (channels_menu_handler admin_state bilan to'qnashib qolardi)
+2. Majburiy kanal obuna tugmasiga premium emoji qo'shildi
+3. subscription_kb tugmasida emoji_id ishlatiladi
 4. Bot API 9.4 ga mos
-5. Kanal turlari: public | private | request
-AVVALGI (v8):
-6. Pullik qilish to'liq ishlaydi
-7. Qismlar sahifalar bo'yicha ko'rsatiladi (5 tadan)
-8. Matnli broadcast ishlaydi
-9. asyncio.create_task ishlatiladi
-10. ep_movie_code None xatoligi tuzatildi
 """
 import logging, asyncio, json, time, re
 from datetime import datetime
@@ -66,6 +60,8 @@ DEFAULT_BTN = {
     "kino_uch":     "🗑 Kino o'chirish",
     "prev_qism":    "Oldingi qismlar",
     "next_qism":    "Boshqa qismlar",
+    # Obuna tugmasi uchun yangi kalit
+    "obuna":        "Obuna bo'lish",
 }
 
 BTN_LABELS = {
@@ -101,6 +97,7 @@ BTN_LABELS = {
     "kino_uch":     "Kino o'chirish",
     "prev_qism":    "Oldingi qismlar tugmasi",
     "next_qism":    "Boshqa qismlar tugmasi",
+    "obuna":        "Obuna tugmasi (kanal)",
 }
 
 LABEL_TO_KEY = {v: k for k, v in BTN_LABELS.items()}
@@ -346,19 +343,26 @@ def channels_manage_kb():
 
 
 def subscription_kb(channels):
+    """
+    Obuna tugmalari. Har bir kanal uchun tugmada
+    'obuna' kalitining emoji_id ishlatiladi.
+    """
     rows = []
+    obuna_eid = get_eid("obuna")
     for c in channels:
-        ctype = c.get("type", "public")
-        if ctype == "private":
-            # maxfiy kanal — invite link
-            rows.append([ibtn(c['title'], url=c["url"], style="primary")])
-        elif ctype == "request":
-            # so'rovli kanal
-            rows.append([ibtn(c['title'], url=c["url"], style="primary")])
-        else:
-            # public
-            rows.append([ibtn(c['title'], url=c["url"], style="primary")])
-    rows.append([ibtn(bt("tekshir"), data="check_sub", style="success", emoji_id=get_eid("tekshir"))])
+        btn = ibtn(
+            c['title'],
+            url=c["url"],
+            style="primary",
+            emoji_id=obuna_eid,   # ← Shu yerda premium emoji qo'shildi
+        )
+        rows.append([btn])
+    rows.append([ibtn(
+        bt("tekshir"),
+        data="check_sub",
+        style="success",
+        emoji_id=get_eid("tekshir"),
+    )])
     return ikb(rows)
 
 
@@ -522,12 +526,6 @@ async def sv(bot, chat_id, video, caption, markup=None, pm="HTML", protect=False
 # ══════════════════════════════════════════════════════════
 
 async def check_subscription(user_id, bot):
-    """
-    Har 3 turdagi kanallarni tekshiradi:
-    - public:  @username orqali get_chat_member
-    - private: chat_id orqali get_chat_member
-    - request: foydalanuvchi so'rov yuborganmi (pending_requests DB da)
-    """
     not_subbed = []
     for ch in DB.get("channels", []):
         ctype = ch.get("type", "public")
@@ -541,7 +539,6 @@ async def check_subscription(user_id, bot):
                     not_subbed.append(ch)
 
             elif ctype == "private":
-                # chat_id raqam bilan saqlanadi
                 chat_id = ch.get("chat_id")
                 if chat_id:
                     member = await bot.get_chat_member(int(chat_id), user_id)
@@ -551,7 +548,6 @@ async def check_subscription(user_id, bot):
                     not_subbed.append(ch)
 
             elif ctype == "request":
-                # So'rovli kanal - pending yoki a'zo bo'lgan bo'lsa o'tkazamiz
                 username = ch.get("username", "")
                 chat_id  = ch.get("chat_id")
                 target   = int(chat_id) if chat_id else (
@@ -721,10 +717,6 @@ async def do_broadcast(bot, bc: dict):
 # ══════════════════════════════════════════════════════════
 
 async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    So'rovli kanalga qo'shilish so'rovi kelganda avtomatik qabul qiladi.
-    Bot kanalga admin va "so'rovlarni qabul qilish" huquqi bo'lishi kerak.
-    """
     req: ChatJoinRequest = update.chat_join_request
     if req is None:
         return
@@ -1177,7 +1169,7 @@ async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text(f"<code>{uid}</code> ga xabar yozing.", parse_mode="HTML")
 
 # ══════════════════════════════════════════════════════════
-# TEXT HANDLER
+# TEXT HANDLER — ASOSIY MUAMMO BU YERDA ENDI TUZATILDI
 # ══════════════════════════════════════════════════════════
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1302,8 +1294,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, f"❌ Xato: {e}")
         return
 
-    # ── 5. Channels menu ──
+    # ══════════════════════════════════════════════════════════
+    # 5. CHANNELS MENU — BU YERDA MUHIM TUZATISH
+    #    channels_menu_handler ADMIN tugmalaridan OLDIN tekshiriladi
+    # ══════════════════════════════════════════════════════════
     if uid == ADMIN_ID and context.user_data.get("channels_menu"):
+        # Channels menu ichidagi state'lar (add_pub_channel, add_prv_channel, va h.)
+        # ham channels_menu_handler orqali o'tadi
         await channels_menu_handler(update, context, text)
         return
 
@@ -1352,6 +1349,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if text == bt("maj_kanal"):
             context.user_data.pop("emoji_menu", None)
             context.user_data.pop("admin_state", None)
+            # channels_menu = True qilib, channels_menu_handler ga o'tkazamiz
             context.user_data["channels_menu"] = True
             await sm(context.bot, uid,
                 "<b>Majburiy kanallar boshqaruvi</b>\n\n"
@@ -1426,12 +1424,23 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ══════════════════════════════════════════════════════════
-# KANALLAR MENYUSI HANDLER (YANGI)
+# KANALLAR MENYUSI HANDLER — TUZATILDI
 # ══════════════════════════════════════════════════════════
 
 async def channels_menu_handler(update, context, text):
     uid = update.effective_user.id
+    state = context.user_data.get("admin_state")
 
+    # ── Agar state mavjud bo'lsa (kanal ma'lumot kiritilayotgan bo'lsa) ──
+    # Bu holda admin_state_handler ga yuboramiz
+    if state in (
+        "add_pub_channel", "add_prv_channel", "add_req_channel", "delete_channel"
+    ):
+        handled = await admin_state_handler(update, context, text)
+        if handled:
+            return
+
+    # ── Channels menu tugmalari ──
     if text == "⬅️ Admin panel":
         context.user_data.pop("channels_menu", None)
         context.user_data.pop("admin_state", None)
@@ -1781,11 +1790,10 @@ async def admin_state_handler(update, context, text):
         return True
 
     # ══════════════════════════════════════════════════
-    # KANALLAR (YANGI 3 TUR)
+    # KANALLAR (3 TUR) — admin_state_handler ichida
     # ══════════════════════════════════════════════════
 
     if state == "add_pub_channel":
-        # Format: @username | Kanal nomi | https://t.me/username
         try:
             parts = [p.strip() for p in text.split("|")]
             uname, title, url = parts[0], parts[1], parts[2]
@@ -1809,7 +1817,6 @@ async def admin_state_handler(update, context, text):
         return True
 
     if state == "add_prv_channel":
-        # Format: CHAT_ID | Kanal nomi | https://t.me/+invitelink
         try:
             parts = [p.strip() for p in text.split("|")]
             chat_id_str, title, url = parts[0], parts[1], parts[2]
@@ -1832,7 +1839,6 @@ async def admin_state_handler(update, context, text):
         return True
 
     if state == "add_req_channel":
-        # Format: @username | Kanal nomi | https://t.me/username
         try:
             parts = [p.strip() for p in text.split("|")]
             uname, title, url = parts[0], parts[1], parts[2]
@@ -1880,7 +1886,6 @@ async def admin_state_handler(update, context, text):
 
     # ── Kanalga post ──
     if state == "add_channel":
-        # Eski format bilan ham ishlash uchun
         try:
             parts = [p.strip() for p in text.split("|")]
             uname, title, url = parts[0], parts[1], parts[2]
@@ -2095,9 +2100,8 @@ def main():
     app.add_handler(MessageHandler(filters.Sticker.ALL, sticker_handler))
     app.add_handler(MessageHandler(
         filters.PHOTO | filters.VIDEO | filters.Document.ALL, media_handler))
-    # So'rovli kanal uchun join request handler
     app.add_handler(ChatJoinRequestHandler(join_request_handler))
-    logger.info("Bot ishga tushdi! v9")
+    logger.info("Bot ishga tushdi! v9 FIXED")
     app.run_polling(drop_pending_updates=True)
 
 
