@@ -1,25 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v9 FIXED
-TUZATISHLAR:
-1. Kanal qo'shish ishlamayotgan muammo hal qilindi
-   (channels_menu_handler admin_state bilan to'qnashib qolardi)
-2. Majburiy kanal obuna tugmasiga premium emoji qo'shildi
-3. subscription_kb tugmasida emoji_id ishlatiladi
-4. Bot API 9.4 ga mos
+Kino Bot - v9
+TUZATISHLAR (v9):
+1. Majburiy kanal to'liq ishlaydi:
+   - Kanal qo'shish (format tekshiriladi)
+   - Kanal o'chirish (ro'yxatdan tanlash)
+   - Kanallar ro'yxatini ko'rish
+2. admin_buttons da maj_kanal uchun submenu qo'shildi
+AVVALGI (v8):
+3. Pullik qilish to'liq ishlaydi
+4. Qismlar sahifalar bo'yicha ko'rsatiladi
+5. Broadcast, emoji sozlamalari
 """
 import logging, asyncio, json, time, re
 from datetime import datetime
 import requests
 import aiohttp
-from telegram import (
-    Update, ChatJoinRequest,
-    InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup, KeyboardButton,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters, ChatJoinRequestHandler,
+    CallbackQueryHandler, ContextTypes, filters,
 )
 
 BOT_TOKEN       = "8723400610:AAGID66k5tFnpZZtpZRaSL3h9czRNCkLE1I"
@@ -64,8 +64,6 @@ DEFAULT_BTN = {
     "kino_uch":     "🗑 Kino o'chirish",
     "prev_qism":    "Oldingi qismlar",
     "next_qism":    "Boshqa qismlar",
-    # Obuna tugmasi uchun yangi kalit
-    "obuna":        "Obuna bo'lish",
 }
 
 BTN_LABELS = {
@@ -101,7 +99,6 @@ BTN_LABELS = {
     "kino_uch":     "Kino o'chirish",
     "prev_qism":    "Oldingi qismlar tugmasi",
     "next_qism":    "Boshqa qismlar tugmasi",
-    "obuna":        "Obuna tugmasi (kanal)",
 }
 
 LABEL_TO_KEY = {v: k for k, v in BTN_LABELS.items()}
@@ -273,47 +270,31 @@ def find_key_by_text(text: str) -> str | None:
     return None
 
 # ══════════════════════════════════════════════════════════
-# TUGMA YARATISH — to'g'ri PTB obyektlari
+# TUGMA YARATISH
 # ══════════════════════════════════════════════════════════
 
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
-    """
-    InlineKeyboardButton qaytaradi.
-    icon_custom_emoji_id — Bot API 9.x xususiyati,
-    PTB versiyasiga qarab qo'llab-quvvatlanmasligi mumkin.
-    Shuning uchun avval oddiy tugma yasaymiz, keyin attribute qo'shamiz.
-    """
-    kw = {"text": text}
-    if data:
-        kw["callback_data"] = data
-    if url:
-        kw["url"] = url
-    btn = InlineKeyboardButton(**kw)
-    if emoji_id:
-        try:
-            btn.icon_custom_emoji_id = emoji_id
-        except Exception:
-            pass
-    return btn
+    b = {"text": text}
+    if data:     b["callback_data"] = data
+    if url:      b["url"] = url
+    if style:    b["style"] = style
+    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
+    return b
 
 
 def rbtn(text, style=None, emoji_id=None):
-    """
-    ReplyKeyboard tugmasi.
-    KeyboardButton da icon_custom_emoji_id yo'q —
-    emoji faqat matn ichida bo'ladi (style ham qo'llanilmaydi).
-    """
-    return KeyboardButton(text=text)
+    b = {"text": text}
+    if style:    b["style"] = style
+    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
+    return b
 
 
 def ikb(rows):
-    """InlineKeyboardMarkup qaytaradi."""
-    return InlineKeyboardMarkup(rows)
+    return {"inline_keyboard": rows}
 
 
 def rkb(rows, resize=True):
-    """ReplyKeyboardMarkup qaytaradi."""
-    return ReplyKeyboardMarkup(rows, resize_keyboard=resize)
+    return {"keyboard": rows, "resize_keyboard": resize}
 
 # ══════════════════════════════════════════════════════════
 # KLAVIATURALAR
@@ -347,42 +328,35 @@ def admin_menu_kb():
 
 
 # ══════════════════════════════════════════════════════════
-# MAJBURIY KANALLAR BOSHQARUV KB
+# MAJBURIY KANAL KLAVIATURALARI (YANGI)
 # ══════════════════════════════════════════════════════════
 
-def channels_manage_kb():
-    """Majburiy kanallar boshqaruv menyusi."""
+def channel_manage_kb():
+    """Majburiy kanal boshqarish submenu klaviaturasi"""
     return rkb([
-        [rbtn("➕ Public kanal qo'shish",  style="success"),
-         rbtn("🔒 Maxfiy kanal qo'shish",  style="primary")],
-        [rbtn("📨 So'rovli kanal qo'shish", style="primary")],
-        [rbtn("🗑 Kanalni o'chirish",        style="danger")],
-        [rbtn("📋 Kanallar ro'yxati",        style="primary")],
-        [rbtn("⬅️ Admin panel",              style="success")],
+        [rbtn("➕ Kanal qo'shish",  style="success"),
+         rbtn("🗑 Kanal o'chirish",  style="danger")],
+        [rbtn("📋 Kanallar ro'yxati", style="primary")],
+        [rbtn("⬅️ Admin panel",       style="success")],
     ])
 
 
-def subscription_kb(channels):
-    """
-    Obuna tugmalari. Har bir kanal uchun tugmada
-    'obuna' kalitining emoji_id ishlatiladi.
-    """
+def channel_delete_inline_kb(channels):
+    """O'chirish uchun inline tugmalar ro'yxati"""
     rows = []
-    obuna_eid = get_eid("obuna")
-    for c in channels:
-        btn = ibtn(
-            c['title'],
-            url=c["url"],
-            style="primary",
-            emoji_id=obuna_eid,   # ← Shu yerda premium emoji qo'shildi
-        )
-        rows.append([btn])
-    rows.append([ibtn(
-        bt("tekshir"),
-        data="check_sub",
-        style="success",
-        emoji_id=get_eid("tekshir"),
-    )])
+    for i, ch in enumerate(channels):
+        rows.append([ibtn(
+            f"🗑 {ch['title']} ({ch['username']})",
+            data=f"ch_del|{i}",
+            style="danger"
+        )])
+    rows.append([ibtn("❌ Bekor", data="ch_del_cancel", style="primary")])
+    return ikb(rows)
+
+
+def subscription_kb(channels):
+    rows = [[ibtn(c['title'], url=c["url"], style="primary")] for c in channels]
+    rows.append([ibtn(bt("tekshir"), data="check_sub", style="success", emoji_id=get_eid("tekshir"))])
     return ikb(rows)
 
 
@@ -545,89 +519,15 @@ async def sv(bot, chat_id, video, caption, markup=None, pm="HTML", protect=False
 # YORDAMCHI
 # ══════════════════════════════════════════════════════════
 
-async def _get_member_safe(bot, target, user_id, timeout=8):
-    """
-    get_chat_member ni timeout bilan chaqiradi.
-    Agar 8 soniyada javob kelmasa — TimeoutError ko'taradi.
-    target: @username (str) yoki chat_id (int)
-    """
-    return await asyncio.wait_for(
-        bot.get_chat_member(target, user_id),
-        timeout=timeout
-    )
-
-
-async def _resolve_chat_id(bot, ch: dict) -> int | None:
-    """
-    Public/request kanal uchun username dan chat_id ni bir marta oladi va keshlayd.
-    Keyingi safar to'g'ridan-to'g'ri int(chat_id) ishlatiladi — username lookup yo'q.
-    """
-    if ch.get("chat_id"):
-        try:
-            return int(ch["chat_id"])
-        except Exception:
-            return None
-    # chat_id yo'q — username orqali resolve qilamiz
-    username = ch.get("username", "").strip()
-    if not username:
-        return None
-    if not username.startswith("@"):
-        username = "@" + username
-    try:
-        chat = await asyncio.wait_for(bot.get_chat(username), timeout=8)
-        # Kesh: DB ga yozamiz, keyingi safar tez ishlaydi
-        ch["chat_id"] = str(chat.id)
-        save()
-        logger.info(f"Resolved {username} → {chat.id}")
-        return chat.id
-    except Exception as e:
-        logger.warning(f"resolve_chat_id {username}: {e}")
-        return None
-
-
 async def check_subscription(user_id, bot):
     not_subbed = []
-    channels = DB.get("channels", [])
-    if not channels:
-        return []
-
-    for ch in channels:
-        ctype = ch.get("type", "public")
+    for ch in DB.get("channels", []):
         try:
-            if ctype == "public":
-                # chat_id mavjud bo'lsa ishlatamiz, yo'q bo'lsa username
-                cid = await _resolve_chat_id(bot, ch)
-                if cid is None:
-                    not_subbed.append(ch)
-                    continue
-                member = await _get_member_safe(bot, cid, user_id)
-                if member.status in ("left", "kicked"):
-                    not_subbed.append(ch)
-
-            elif ctype == "private":
-                chat_id = ch.get("chat_id")
-                if not chat_id:
-                    not_subbed.append(ch)
-                    continue
-                member = await _get_member_safe(bot, int(chat_id), user_id)
-                if member.status in ("left", "kicked"):
-                    not_subbed.append(ch)
-
-            elif ctype == "request":
-                cid = await _resolve_chat_id(bot, ch)
-                if cid is None:
-                    not_subbed.append(ch)
-                    continue
-                member = await _get_member_safe(bot, cid, user_id)
-                if member.status in ("left", "kicked"):
-                    not_subbed.append(ch)
-
-        except asyncio.TimeoutError:
-            logger.warning(f"Sub check TIMEOUT: {ch.get('title', ch)}")
-            # Timeout bo'lsa — foydalanuvchini to'xtatmaymiz, o'tkazib yuboramiz
-            # (kanal muammosi, foydalanuvchi aybdor emas)
+            member = await bot.get_chat_member(ch["username"], user_id)
+            if member.status in ("left", "kicked"):
+                not_subbed.append(ch)
         except Exception as e:
-            logger.warning(f"Sub check {ch.get('title', ch)}: {e}")
+            logger.warning(f"Sub check {ch}: {e}")
             not_subbed.append(ch)
     return not_subbed
 
@@ -676,7 +576,7 @@ def clear_admin_state(context):
                 "editing_btn_key", "emoji_menu",
                 "bc_msg", "bc_buttons", "bc_adding_btn",
                 "del_movie_code", "poster_code",
-                "channels_menu"]:
+                "channel_manage_menu"]:
         context.user_data.pop(key, None)
 
 
@@ -695,23 +595,14 @@ def _build_ep_price_list(code: str, eps: list, prices: dict) -> str:
 
 
 def _channels_list_text() -> str:
+    """Kanallar ro'yxatini matn ko'rinishida chiqaradi."""
     channels = DB.get("channels", [])
     if not channels:
-        return "📋 Hech qanday majburiy kanal yo'q."
-    lines = ["📋 <b>Majburiy kanallar:</b>\n"]
-    for i, ch in enumerate(channels):
-        ctype = ch.get("type", "public")
-        type_icon = {"public": "🌐", "private": "🔒", "request": "📨"}.get(ctype, "🌐")
-        lines.append(f"{i+1}. {type_icon} <b>{ch.get('title', '?')}</b>")
-        if ctype == "public":
-            lines.append(f"   @{ch.get('username', '').lstrip('@')}")
-        elif ctype == "private":
-            lines.append(f"   Chat ID: <code>{ch.get('chat_id', '?')}</code>")
-        elif ctype == "request":
-            uname = ch.get("username", "")
-            lines.append(f"   @{uname.lstrip('@')}" if uname else f"   ID: {ch.get('chat_id', '?')}")
-        lines.append(f"   URL: {ch.get('url', '-')}")
-    return "\n".join(lines)
+        return "📭 Hozircha majburiy kanal yo'q."
+    lines = []
+    for i, ch in enumerate(channels, 1):
+        lines.append(f"  {i}. <b>{ch['title']}</b> — {ch['username']}")
+    return f"📋 <b>Majburiy kanallar</b> ({len(channels)} ta):\n\n" + "\n".join(lines)
 
 # ══════════════════════════════════════════════════════════
 # BROADCAST
@@ -779,20 +670,6 @@ async def do_broadcast(bot, bc: dict):
     return ok, fail
 
 # ══════════════════════════════════════════════════════════
-# JOIN REQUEST HANDLER (so'rovli kanal)
-# ══════════════════════════════════════════════════════════
-
-async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    req: ChatJoinRequest = update.chat_join_request
-    if req is None:
-        return
-    try:
-        await context.bot.approve_chat_join_request(req.chat.id, req.from_user.id)
-        logger.info(f"Join request approved: user={req.from_user.id} chat={req.chat.id}")
-    except Exception as e:
-        logger.warning(f"Join request approve error: {e}")
-
-# ══════════════════════════════════════════════════════════
 # START
 # ══════════════════════════════════════════════════════════
 
@@ -841,6 +718,43 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cb_broadcast(update, context)
         return
 
+    # ══════════════════════════════════════════════════
+    # KANAL O'CHIRISH CALLBACK (YANGI)
+    # ══════════════════════════════════════════════════
+    if data.startswith("ch_del|"):
+        if uid != ADMIN_ID:
+            await q.answer("Ruxsat yo'q", show_alert=True)
+            return
+        await q.answer()
+        idx = int(data.split("|")[1])
+        channels = DB.get("channels", [])
+        if idx < 0 or idx >= len(channels):
+            try:
+                await q.edit_message_text("❌ Kanal topilmadi.")
+            except Exception:
+                pass
+            return
+        removed = channels.pop(idx)
+        save()
+        try:
+            await q.edit_message_text(
+                f"✅ <b>{removed['title']}</b> ({removed['username']}) o'chirildi!\n\n"
+                f"{_channels_list_text()}",
+                parse_mode="HTML")
+        except Exception:
+            pass
+        await sm(context.bot, uid, "Majburiy kanal boshqaruvi:", channel_manage_kb())
+        return
+
+    if data == "ch_del_cancel":
+        await q.answer()
+        try:
+            await q.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await sm(context.bot, uid, "Bekor qilindi.", channel_manage_kb())
+        return
+
     if data == "check_sub":
         await cb_check_sub(update, context)
 
@@ -871,6 +785,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "go_home":
         await q.answer()
+        await context.bot.send_chat_action(uid, action="typing")
         try:
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
@@ -940,6 +855,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["admin_state"] = "add_ep_video"
             context.user_data["ep_movie_code"] = code
             await q.answer()
+            await context.bot.send_chat_action(uid, action="typing")
             await sm(context.bot, uid, f"<b>{code}</b> uchun video yuboring:")
         else:
             await q.answer("Ruxsat yo'q", show_alert=True)
@@ -955,13 +871,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not eps:
                 await q.answer()
                 await sm(context.bot, uid,
-                    f"⚠️ <b>{movie.get('title', code)}</b> kinoda hali qism yo'q.")
+                    f"⚠️ <b>{movie.get('title', code)}</b> kinoda hali qism yo'q.\n\n"
+                    f"Avval qism qo'shing, so'ng narx belgilang.")
                 return
             prices = movie.get("prices", {})
             ep_list = _build_ep_price_list(code, eps, prices)
             context.user_data["price_movie_code"] = code
             context.user_data["admin_state"] = "set_price_ep"
             await q.answer()
+            await context.bot.send_chat_action(uid, action="typing")
             await sm(context.bot, uid,
                 f"💰 <b>{movie.get('title', code)}</b> — narx belgilash\n"
                 f"Kod: <code>{code}</code>\n\n"
@@ -1235,7 +1153,7 @@ async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text(f"<code>{uid}</code> ga xabar yozing.", parse_mode="HTML")
 
 # ══════════════════════════════════════════════════════════
-# TEXT HANDLER — ASOSIY MUAMMO BU YERDA ENDI TUZATILDI
+# TEXT HANDLER
 # ══════════════════════════════════════════════════════════
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1350,7 +1268,42 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         return
 
-    # ── 4. Admin reply_to ──
+    # ── 4. Kanal boshqarish submenu (YANGI) ──
+    if uid == ADMIN_ID and context.user_data.get("channel_manage_menu"):
+        if text == "⬅️ Admin panel":
+            context.user_data.pop("channel_manage_menu", None)
+            context.user_data.pop("admin_state", None)
+            await sm(context.bot, uid, "Admin panel", admin_menu_kb())
+            return
+
+        if text == "➕ Kanal qo'shish":
+            context.user_data["admin_state"] = "add_channel"
+            await sm(context.bot, uid,
+                "➕ <b>Kanal qo'shish</b>\n\n"
+                "Quyidagi formatda yuboring:\n"
+                "<code>@username | Kanal nomi | https://t.me/username</code>\n\n"
+                "Misol:\n"
+                "<code>@mykinochannel | Mening kanal | https://t.me/mykinochannel</code>")
+            return
+
+        if text == "🗑 Kanal o'chirish":
+            channels = DB.get("channels", [])
+            if not channels:
+                await sm(context.bot, uid,
+                    "❌ Hozircha kanal yo'q. Avval kanal qo'shing.",
+                    channel_manage_kb())
+                return
+            await sm(context.bot, uid,
+                f"{_channels_list_text()}\n\nO'chirmoqchi bo'lgan kanalni tanlang 👇",
+                channel_delete_inline_kb(channels))
+            return
+
+        if text == "📋 Kanallar ro'yxati":
+            await sm(context.bot, uid, _channels_list_text(), channel_manage_kb())
+            return
+        return
+
+    # ── 5. Admin reply_to ──
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
@@ -1358,16 +1311,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, "✅ Yuborildi!")
         except Exception as e:
             await sm(context.bot, uid, f"❌ Xato: {e}")
-        return
-
-    # ══════════════════════════════════════════════════════════
-    # 5. CHANNELS MENU — BU YERDA MUHIM TUZATISH
-    #    channels_menu_handler ADMIN tugmalaridan OLDIN tekshiriladi
-    # ══════════════════════════════════════════════════════════
-    if uid == ADMIN_ID and context.user_data.get("channels_menu"):
-        # Channels menu ichidagi state'lar (add_pub_channel, add_prv_channel, va h.)
-        # ham channels_menu_handler orqali o'tadi
-        await channels_menu_handler(update, context, text)
         return
 
     # ── 6. Admin holat handler (price state'lari) ──
@@ -1402,25 +1345,19 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("emoji_menu", None)
             context.user_data.pop("editing_btn_key", None)
             await sm(context.bot, uid,
-                "📢 <b>Barchaga xabar yuborish</b>\n\nXabar yuboring (matn, rasm yoki video).")
+                "📢 <b>Barchaga xabar yuborish</b>\n\n"
+                "Xabar yuboring — matn, rasm yoki video.\n\n"
+                "⚠️ <b>Muhim:</b> Agar iqtibos (quote) xabar yuborsangiz,\n"
+                "faqat asosiy matn yuboriladi, iqtibos qismi o'tkazib yuboriladi.\n\n"
+                "Bekor qilish uchun /start bosing.")
             context.user_data["admin_state"] = "broadcast_msg"
             return
 
         if text == bt("kino_uch"):
             context.user_data.pop("emoji_menu", None)
             context.user_data["admin_state"] = "delete_movie_code"
-            await sm(context.bot, uid, "🗑 <b>Kino o'chirish</b>\n\nKino kodini kiriting:")
-            return
-
-        if text == bt("maj_kanal"):
-            context.user_data.pop("emoji_menu", None)
-            context.user_data.pop("admin_state", None)
-            # channels_menu = True qilib, channels_menu_handler ga o'tkazamiz
-            context.user_data["channels_menu"] = True
             await sm(context.bot, uid,
-                "<b>Majburiy kanallar boshqaruvi</b>\n\n"
-                + _channels_list_text() + "\n\nNima qilasiz?",
-                channels_manage_kb())
+                "🗑 <b>Kino o'chirish</b>\n\nKino kodini kiriting:")
             return
 
         context.user_data.pop("emoji_menu", None)
@@ -1462,6 +1399,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML")
         return
 
+    # ── 10. Yordam so'rovi ──
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         cap = (f"<b>Yordam so'rovi</b>\n{user.full_name} (@{user.username or '-'})\n"
@@ -1470,10 +1408,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Xabaringiz adminga yuborildi!")
         return
 
+    # ── 11. To'lov cheki ──
     if context.user_data.get("awaiting_check"):
         await sm(context.bot, uid, "Iltimos, chek <b>rasmini</b> yuboring.")
         return
 
+    # ── 12. Kino kodi ──
     code = text.upper().strip()
     if code in DB["movies"]:
         ns = await check_subscription(uid, context.bot)
@@ -1489,93 +1429,19 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "❌ Bunday kod topilmadi.\n\nTo'g'ri kino kodini yuboring 👇")
 
 
-# ══════════════════════════════════════════════════════════
-# KANALLAR MENYUSI HANDLER — TUZATILDI
-# ══════════════════════════════════════════════════════════
-
-async def channels_menu_handler(update, context, text):
-    uid = update.effective_user.id
-    state = context.user_data.get("admin_state")
-
-    # ── Agar state mavjud bo'lsa (kanal ma'lumot kiritilayotgan bo'lsa) ──
-    # Bu holda admin_state_handler ga yuboramiz
-    if state in (
-        "add_pub_channel", "add_prv_channel", "add_req_channel", "delete_channel"
-    ):
-        handled = await admin_state_handler(update, context, text)
-        if handled:
-            return
-
-    # ── Channels menu tugmalari ──
-    if text == "⬅️ Admin panel":
-        context.user_data.pop("channels_menu", None)
-        context.user_data.pop("admin_state", None)
-        await sm(context.bot, uid, "Admin panel", admin_menu_kb())
-        return
-
-    if text == "📋 Kanallar ro'yxati":
-        await sm(context.bot, uid,
-            _channels_list_text() or "Kanallar yo'q.",
-            channels_manage_kb())
-        return
-
-    if text == "➕ Public kanal qo'shish":
-        context.user_data["admin_state"] = "add_pub_channel"
-        await sm(context.bot, uid,
-            "🌐 <b>Public kanal qo'shish</b>\n\n"
-            "Shu formatda yuboring:\n"
-            "<code>@username | Kanal nomi | https://t.me/username</code>")
-        return
-
-    if text == "🔒 Maxfiy kanal qo'shish":
-        context.user_data["admin_state"] = "add_prv_channel"
-        await sm(context.bot, uid,
-            "🔒 <b>Maxfiy kanal qo'shish</b>\n\n"
-            "Bot kanalda <b>admin</b> bo'lishi shart!\n\n"
-            "Shu formatda yuboring:\n"
-            "<code>CHAT_ID | Kanal nomi | https://t.me/+invitelink</code>\n\n"
-            "Chat ID ni bilish uchun kanalga @getidsbot qo'shing.")
-        return
-
-    if text == "📨 So'rovli kanal qo'shish":
-        context.user_data["admin_state"] = "add_req_channel"
-        await sm(context.bot, uid,
-            "📨 <b>So'rovli kanal qo'shish</b>\n\n"
-            "Bot kanalda <b>admin</b> bo'lishi va\n"
-            "<b>'So'rovlarni qabul qilish'</b> huquqi bo'lishi shart!\n\n"
-            "Shu formatda yuboring:\n"
-            "<code>@username | Kanal nomi | https://t.me/username</code>")
-        return
-
-    if text == "🗑 Kanalni o'chirish":
-        channels = DB.get("channels", [])
-        if not channels:
-            await sm(context.bot, uid, "❌ Hech qanday kanal yo'q.", channels_manage_kb())
-            return
-        context.user_data["admin_state"] = "delete_channel"
-        lines = []
-        for i, ch in enumerate(channels):
-            ctype = ch.get("type", "public")
-            icon = {"public": "🌐", "private": "🔒", "request": "📨"}.get(ctype, "🌐")
-            lines.append(f"{i+1}. {icon} {ch.get('title', '?')}")
-        await sm(context.bot, uid,
-            "🗑 <b>Kanalni o'chirish</b>\n\n"
-            + "\n".join(lines) + "\n\n"
-            "Kanal <b>raqamini</b> kiriting (masalan: <code>1</code>):")
-        return
-
-
 async def admin_buttons(update, context, text):
     uid = update.effective_user.id
     await context.bot.send_chat_action(uid, action="typing")
 
     if text == bt("boshqarish"):
         context.user_data.pop("admin_state", None)
+        context.user_data.pop("channel_manage_menu", None)
         await sm(context.bot, uid, "<b>Admin panel</b>", admin_menu_kb())
         return
 
     if text == bt("asosiy"):
         context.user_data.pop("admin_state", None)
+        context.user_data.pop("channel_manage_menu", None)
         await sm(context.bot, uid, "Asosiy menyu", main_menu_kb(is_admin=True))
         return
 
@@ -1611,12 +1477,27 @@ async def admin_buttons(update, context, text):
         context.user_data.pop("price_movie_code", None)
         context.user_data.pop("price_ep", None)
         await sm(context.bot, uid,
-            "💰 <b>Qismni pullik qilish</b>\n\nKino <b>kodini</b> kiriting:")
+            "💰 <b>Qismni pullik qilish</b>\n\n"
+            "Kino <b>kodini</b> kiriting:")
         return
 
     if text == bt("ilova"):
         context.user_data["admin_state"] = "set_install"
         await sm(context.bot, uid, "Ilova fayl yoki video yuboring:")
+        return
+
+    # ══════════════════════════════════════════════════
+    # TUZATISH: maj_kanal — submenu ochadi
+    # ══════════════════════════════════════════════════
+    if text == bt("maj_kanal"):
+        context.user_data.pop("admin_state", None)
+        context.user_data["channel_manage_menu"] = True
+        channels = DB.get("channels", [])
+        await sm(context.bot, uid,
+            f"📡 <b>Majburiy kanal boshqaruvi</b>\n\n"
+            f"{_channels_list_text()}\n\n"
+            f"Nima qilmoqchisiz?",
+            channel_manage_kb())
         return
 
     if text == bt("kanal_post"):
@@ -1631,7 +1512,6 @@ async def admin_state_handler(update, context, text):
     if not state:
         return False
 
-    # ── Broadcast ──
     if state == "broadcast_msg":
         bc = {
             "type": "copy",
@@ -1645,12 +1525,11 @@ async def admin_state_handler(update, context, text):
         await send_broadcast_preview(context.bot, uid, bc)
         return True
 
-    # ── Kino o'chirish ──
     if state == "delete_movie_code":
         code = text.upper().strip()
         if code not in DB["movies"]:
             await sm(context.bot, uid,
-                f"❌ <code>{code}</code> kodli kino topilmadi. Qayta kiriting:")
+                f"❌ <code>{code}</code> kodli kino topilmadi.\n\nQayta kiriting yoki /start bosing:")
             return True
         movie = DB["movies"][code]
         title = movie.get("title", code)
@@ -1662,9 +1541,10 @@ async def admin_state_handler(update, context, text):
             f"🎬 <b>{title}</b>  |  <code>{code}</code>\n"
             f"📺 Qismlar soni: <b>{len(eps)} ta</b>\n\n"
             f"{ep_list}\n\n"
-            f"• Raqam → qismni o'chirish\n"
-            f"• <code>hammasi</code> → barcha qismlarni o'chirish\n"
-            f"• <code>kino</code> → kinoni butunlay o'chirish")
+            f"Qaysi qismni o'chirmoqchisiz?\n"
+            f"• Raqam kiriting (masalan: <code>3</code>)\n"
+            f"• Barcha qismlarni o'chirish: <code>hammasi</code>\n"
+            f"• Kinoni butunlay o'chirish: <code>kino</code>")
         return True
 
     if state == "delete_movie_ep":
@@ -1675,17 +1555,21 @@ async def admin_state_handler(update, context, text):
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
             return True
+
         title = movie.get("title", code)
         eps = movie.get("episodes", [])
         val = text.strip().lower()
+
         if val == "kino":
             del DB["movies"][code]
             save()
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
             await sm(context.bot, uid,
-                f"✅ <b>{title}</b> butunlay o'chirildi!", admin_menu_kb())
+                f"✅ <b>{title}</b> (<code>{code}</code>) butunlay o'chirildi!",
+                admin_menu_kb())
             return True
+
         if val == "hammasi":
             DB["movies"][code]["episodes"] = []
             DB["movies"][code]["prices"] = {}
@@ -1693,13 +1577,15 @@ async def admin_state_handler(update, context, text):
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
             await sm(context.bot, uid,
-                f"✅ <b>{title}</b> barcha qismlari o'chirildi!", admin_menu_kb())
+                f"✅ <b>{title}</b> kinoning barcha qismlari o'chirildi!",
+                admin_menu_kb())
             return True
+
         if val.isdigit():
             ep_num = int(val)
             if ep_num < 1 or ep_num > len(eps):
                 await sm(context.bot, uid,
-                    f"❌ {ep_num}-qism mavjud emas. 1–{len(eps)} oralig'ida kiriting:")
+                    f"❌ <b>{ep_num}</b>-qism mavjud emas. 1–{len(eps)} oralig'ida kiriting:")
                 return True
             idx = ep_num - 1
             DB["movies"][code]["episodes"].pop(idx)
@@ -1720,14 +1606,14 @@ async def admin_state_handler(update, context, text):
             context.user_data.pop("del_movie_code", None)
             await sm(context.bot, uid,
                 f"✅ <b>{title}</b> — <b>{ep_num}-qism</b> o'chirildi!\n"
-                f"Qolgan: <b>{len(DB['movies'][code]['episodes'])} ta</b>",
+                f"Qolgan qismlar: <b>{len(DB['movies'][code]['episodes'])} ta</b>",
                 admin_menu_kb())
             return True
+
         await sm(context.bot, uid,
-            "❌ Noto'g'ri. Raqam, <code>hammasi</code> yoki <code>kino</code> kiriting:")
+            "❌ Noto'g'ri. Qism raqami, <code>hammasi</code> yoki <code>kino</code> kiriting:")
         return True
 
-    # ── Karta ──
     if state == "set_card":
         DB["card_number"] = text
         save()
@@ -1735,7 +1621,6 @@ async def admin_state_handler(update, context, text):
         await sm(context.bot, uid, f"✅ Karta saqlandi: <code>{text}</code>")
         return True
 
-    # ── Kino qo'shish ──
     if state == "add_movie_code":
         context.user_data["new_movie_code"] = text.upper()
         context.user_data["admin_state"] = "add_movie_title"
@@ -1746,14 +1631,17 @@ async def admin_state_handler(update, context, text):
         code = context.user_data.get("new_movie_code")
         now = datetime.now().strftime("%d.%m.%Y %H:%M")
         DB["movies"][code] = {
-            "title": text, "episodes": [], "prices": {}, "added_date": now,
+            "title": text,
+            "episodes": [],
+            "prices": {},
+            "added_date": now,
         }
         save()
         context.user_data["admin_state"] = "add_movie_poster"
         context.user_data["poster_code"] = code
         await sm(context.bot, uid,
-            f"✅ <b>{text}</b> qo'shildi! Kod: <code>{code}</code>\n\n"
-            f"📷 Poster yuboring yoki o'tkazib yuborish uchun <b>0</b> kiriting:")
+            f"✅ <b>{text}</b> kinosi qo'shildi!\nKod: <code>{code}</code>\n\n"
+            f"📷 Kino posterini yuboring yoki o'tkazib yuborish uchun <b>0</b> kiriting:")
         return True
 
     if state == "add_movie_poster":
@@ -1762,14 +1650,14 @@ async def admin_state_handler(update, context, text):
         context.user_data.pop("new_movie_code", None)
         if code:
             await sm(context.bot, uid,
-                f"✅ Poster o'tkazib yuborildi. Kod: <code>{code}</code>",
+                f"✅ Poster o'tkazib yuborildi.\nKod: <code>{code}</code>",
                 movie_added_kb(code))
         return True
 
     if state == "add_ep_code":
         code = text.upper()
         if code not in DB["movies"]:
-            await sm(context.bot, uid, "❌ Bunday kod yo'q. Qayta kiriting.")
+            await sm(context.bot, uid, "❌ Bunday kod yo'q. Qayta kiriting yoki bekor qiling.")
             context.user_data.pop("admin_state")
             return True
         context.user_data["ep_movie_code"] = code
@@ -1777,191 +1665,156 @@ async def admin_state_handler(update, context, text):
         await sm(context.bot, uid, f"<b>{code}</b> uchun video yuboring:")
         return True
 
-    # ══════════════════════════════════════════════════
-    # NARX BELGILASH
-    # ══════════════════════════════════════════════════
     if state == "set_price_code":
         code = text.upper().strip()
         if code not in DB["movies"]:
             await sm(context.bot, uid,
-                f"❌ <code>{code}</code> topilmadi. Qayta kiriting:")
+                f"❌ <code>{code}</code> kodli kino topilmadi.\n\n"
+                f"Qayta kino kodini kiriting:")
             return True
+
         movie = DB["movies"][code]
         eps = movie.get("episodes", [])
+        prices = movie.get("prices", {})
+
         if not eps:
             await sm(context.bot, uid,
-                f"⚠️ <b>{movie.get('title', code)}</b> da qism yo'q. Avval qism qo'shing.")
+                f"⚠️ <b>{movie.get('title', code)}</b> kinoda hali qism yo'q.\n\n"
+                f"Avval qism qo'shing, so'ng narx belgilang.")
             context.user_data.pop("admin_state", None)
             return True
-        prices = movie.get("prices", {})
+
         ep_list = _build_ep_price_list(code, eps, prices)
         context.user_data["price_movie_code"] = code
         context.user_data["admin_state"] = "set_price_ep"
+
         await sm(context.bot, uid,
-            f"💰 <b>{movie.get('title', code)}</b>\nKod: <code>{code}</code>\n\n"
-            f"{ep_list}\n\nQaysi qism? Raqam kiriting (1–{len(eps)}):")
+            f"💰 <b>{movie.get('title', code)}</b> — narx belgilash\n"
+            f"Kod: <code>{code}</code>\n\n"
+            f"{ep_list}\n\n"
+            f"Qaysi qismni pullik qilmoqchisiz?\n"
+            f"Qism <b>raqamini</b> kiriting (1 dan {len(eps)} gacha):")
         return True
 
     if state == "set_price_ep":
         code = context.user_data.get("price_movie_code")
+
         if not code or code not in DB["movies"]:
-            await sm(context.bot, uid, "❌ Xatolik. Kino kodini qayta kiriting:")
+            await sm(context.bot, uid,
+                "❌ Xatolik yuz berdi. Qaytadan kino kodini kiriting:")
             context.user_data["admin_state"] = "set_price_code"
             context.user_data.pop("price_movie_code", None)
+            context.user_data.pop("price_ep", None)
             return True
+
+        movie = DB["movies"][code]
+        eps = movie.get("episodes", [])
+
         if not text.strip().isdigit():
-            await sm(context.bot, uid, "❌ Faqat raqam kiriting:")
+            await sm(context.bot, uid,
+                "❌ Faqat <b>raqam</b> kiriting (masalan: <code>3</code>):")
             return True
+
         ep_num = int(text.strip())
-        eps = DB["movies"][code].get("episodes", [])
         if ep_num < 1 or ep_num > len(eps):
             await sm(context.bot, uid,
-                f"❌ 1 dan {len(eps)} gacha kiriting:")
+                f"❌ <b>{ep_num}</b>-qism mavjud emas.\n"
+                f"1 dan {len(eps)} gacha raqam kiriting:")
             return True
+
         context.user_data["price_ep"] = str(ep_num)
         context.user_data["admin_state"] = "set_price_amount"
-        cur_price = DB["movies"][code].get("prices", {}).get(str(ep_num))
-        cur_info = f"\nHozir: <b>{cur_price} so'm</b>" if cur_price else "\nHozir: <b>bepul</b>"
+
+        cur_price = movie.get("prices", {}).get(str(ep_num))
+        cur_info = f"\nHozirgi narx: <b>{cur_price} so'm</b>" if cur_price else "\nHozir: <b>bepul</b>"
+
         await sm(context.bot, uid,
-            f"💰 <b>{DB['movies'][code].get('title', code)}</b> — {ep_num}-qism{cur_info}\n\n"
-            f"Narxni kiriting (so'mda). Bepul qilish uchun <code>0</code>:")
+            f"💰 <b>{movie.get('title', code)}</b>\n"
+            f"<b>{ep_num}-qism</b> narxi{cur_info}\n\n"
+            f"Yangi narxni kiriting (so'mda):\n"
+            f"<i>Bepul qilish uchun <code>0</code> kiriting</i>")
         return True
 
     if state == "set_price_amount":
         code = context.user_data.get("price_movie_code")
         ep = context.user_data.get("price_ep")
+
         if not code or not ep or code not in DB["movies"]:
             await sm(context.bot, uid, "❌ Xatolik. /start bosing.")
             context.user_data.pop("admin_state", None)
+            context.user_data.pop("price_movie_code", None)
+            context.user_data.pop("price_ep", None)
             return True
+
+        movie = DB["movies"][code]
+        movie_title = movie.get("title", code)
+
         if not text.strip().isdigit():
-            await sm(context.bot, uid, "❌ Faqat raqam kiriting:")
+            await sm(context.bot, uid,
+                "❌ Faqat <b>raqam</b> kiriting (so'mda).\n"
+                "<i>Bepul qilish uchun <code>0</code> kiriting</i>")
             return True
+
         amount = text.strip()
-        movie_title = DB["movies"][code].get("title", code)
+
         context.user_data.pop("admin_state", None)
         context.user_data.pop("price_movie_code", None)
         context.user_data.pop("price_ep", None)
+
         if amount == "0":
             DB["movies"][code].setdefault("prices", {}).pop(ep, None)
             save()
             await sm(context.bot, uid,
-                f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> endi bepul!", admin_menu_kb())
+                f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> endi <b>bepul</b>!",
+                admin_menu_kb())
         else:
             DB["movies"][code].setdefault("prices", {})[ep] = amount
             save()
             await sm(context.bot, uid,
-                f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b>: <b>{amount} so'm</b>",
+                f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> narxi: <b>{amount} so'm</b>",
                 admin_menu_kb())
         return True
 
     # ══════════════════════════════════════════════════
-    # KANALLAR (3 TUR) — admin_state_handler ichida
+    # TUZATISH: add_channel — to'g'ri format tekshiruvi
     # ══════════════════════════════════════════════════
-
-    if state == "add_pub_channel":
-        try:
-            parts = [p.strip() for p in text.split("|")]
-            uname, title, url = parts[0], parts[1], parts[2]
-            if not uname.startswith("@"):
-                uname = "@" + uname
-            DB["channels"].append({
-                "type": "public",
-                "username": uname,
-                "title": title,
-                "url": url,
-            })
-            save()
-            context.user_data.pop("admin_state", None)
-            await sm(context.bot, uid,
-                f"✅ Public kanal qo'shildi: <b>{title}</b>",
-                channels_manage_kb())
-        except Exception:
-            await sm(context.bot, uid,
-                "❌ Format xato!\n"
-                "<code>@username | Kanal nomi | https://t.me/username</code>")
-        return True
-
-    if state == "add_prv_channel":
-        try:
-            parts = [p.strip() for p in text.split("|")]
-            chat_id_str, title, url = parts[0], parts[1], parts[2]
-            DB["channels"].append({
-                "type": "private",
-                "chat_id": chat_id_str,
-                "title": title,
-                "url": url,
-            })
-            save()
-            context.user_data.pop("admin_state", None)
-            await sm(context.bot, uid,
-                f"✅ Maxfiy kanal qo'shildi: <b>{title}</b>\n"
-                f"Chat ID: <code>{chat_id_str}</code>",
-                channels_manage_kb())
-        except Exception:
-            await sm(context.bot, uid,
-                "❌ Format xato!\n"
-                "<code>CHAT_ID | Kanal nomi | https://t.me/+invitelink</code>")
-        return True
-
-    if state == "add_req_channel":
-        try:
-            parts = [p.strip() for p in text.split("|")]
-            uname, title, url = parts[0], parts[1], parts[2]
-            if not uname.startswith("@"):
-                uname = "@" + uname
-            DB["channels"].append({
-                "type": "request",
-                "username": uname,
-                "title": title,
-                "url": url,
-            })
-            save()
-            context.user_data.pop("admin_state", None)
-            await sm(context.bot, uid,
-                f"✅ So'rovli kanal qo'shildi: <b>{title}</b>\n\n"
-                f"⚠️ Bot kanalda <b>admin</b> bo'lishi va\n"
-                f"<b>'So'rovlarni qabul qilish'</b> huquqi bo'lishi shart!",
-                channels_manage_kb())
-        except Exception:
-            await sm(context.bot, uid,
-                "❌ Format xato!\n"
-                "<code>@username | Kanal nomi | https://t.me/username</code>")
-        return True
-
-    if state == "delete_channel":
-        channels = DB.get("channels", [])
-        if not text.strip().isdigit():
-            await sm(context.bot, uid,
-                "❌ Faqat raqam kiriting (masalan: <code>1</code>):")
-            return True
-        idx = int(text.strip()) - 1
-        if idx < 0 or idx >= len(channels):
-            await sm(context.bot, uid,
-                f"❌ 1 dan {len(channels)} gacha raqam kiriting:")
-            return True
-        removed = channels.pop(idx)
-        DB["channels"] = channels
-        save()
-        context.user_data.pop("admin_state", None)
-        await sm(context.bot, uid,
-            f"✅ <b>{removed.get('title', '?')}</b> o'chirildi!\n\n"
-            + _channels_list_text(),
-            channels_manage_kb())
-        return True
-
-    # ── Kanalga post ──
     if state == "add_channel":
         try:
             parts = [p.strip() for p in text.split("|")]
+            if len(parts) < 3:
+                raise ValueError("Format xato")
             uname, title, url = parts[0], parts[1], parts[2]
-            DB["channels"].append({"type": "public", "username": uname, "title": title, "url": url})
+
+            # @ belgisi tekshiruvi
+            if not uname.startswith("@"):
+                uname = "@" + uname
+
+            # Dublikat tekshiruvi
+            existing = DB.get("channels", [])
+            for ch in existing:
+                if ch["username"].lower() == uname.lower():
+                    await sm(context.bot, uid,
+                        f"⚠️ <b>{uname}</b> allaqachon qo'shilgan!\n\n"
+                        f"{_channels_list_text()}",
+                        channel_manage_kb())
+                    context.user_data.pop("admin_state", None)
+                    return True
+
+            DB["channels"].append({"username": uname, "title": title, "url": url})
             save()
-            await sm(context.bot, uid, f"✅ Kanal qo'shildi: <b>{title}</b>")
+            await sm(context.bot, uid,
+                f"✅ Kanal qo'shildi: <b>{title}</b> ({uname})\n\n"
+                f"{_channels_list_text()}",
+                channel_manage_kb())
         except Exception:
             await sm(context.bot, uid,
-                "❌ Format xato!\n<code>@username | Kanal nomi | https://t.me/username</code>")
-        context.user_data.pop("admin_state")
+                "❌ Format xato! Quyidagi ko'rinishda yuboring:\n\n"
+                "<code>@username | Kanal nomi | https://t.me/username</code>\n\n"
+                "Misol:\n"
+                "<code>@mykinochannel | Mening kanal | https://t.me/mykinochannel</code>")
+            # state saqlanib qoladi, qayta urinish imkoni
+            return True
+        context.user_data.pop("admin_state", None)
         return True
 
     if state == "post_channel_code":
@@ -1972,7 +1825,7 @@ async def admin_state_handler(update, context, text):
             return True
         context.user_data["post_code"] = code
         context.user_data["admin_state"] = "post_channel_target"
-        await sm(context.bot, uid, "Kanal username ni kiriting (@mychannel):")
+        await sm(context.bot, uid, "Kanal username ni kiriting (masalan @mychannel):")
         return True
 
     if state == "post_channel_target":
@@ -1998,11 +1851,11 @@ async def admin_state_handler(update, context, text):
         return True
 
     if state == "set_install":
-        await sm(context.bot, uid, "⚠️ Matn emas — <b>fayl yoki video</b> yuboring:")
+        await sm(context.bot, uid, "⚠️ Iltimos, matn emas — <b>fayl yoki video</b> yuboring:")
         return True
 
     if state == "add_ep_video":
-        await sm(context.bot, uid, "⚠️ Matn emas — <b>video fayl</b> yuboring:")
+        await sm(context.bot, uid, "⚠️ Iltimos, matn emas — <b>video fayl</b> yuboring:")
         return True
 
     return False
@@ -2023,17 +1876,22 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     emoji = sticker.emoji or ""
     if not emoji:
-        await sm(context.bot, uid, "Bu stickerda emoji yo'q.")
+        await sm(context.bot, uid, "Bu stickerda emoji yo'q. Boshqa sticker yuboring.")
         return
 
     context.user_data.pop("editing_btn_key")
+
     existing = DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
     existing_label = strip_emoji_prefix(existing)
     existing_emoji_prefix = extract_emoji_prefix(existing)
     if not existing_label:
         existing_label = DEFAULT_BTN.get(key, "")
 
-    new_emoji_prefix = (existing_emoji_prefix + emoji) if existing_emoji_prefix else emoji
+    if existing_emoji_prefix:
+        new_emoji_prefix = existing_emoji_prefix + emoji
+    else:
+        new_emoji_prefix = emoji
+
     new_text = f"{new_emoji_prefix} {existing_label}"
     DB.setdefault("btn_texts", {})[key] = new_text
     EMOJI_IDS.pop(key, None)
@@ -2041,7 +1899,8 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save()
 
     await sm(context.bot, uid,
-        f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\nKo'rinish: <code>{new_text}</code>")
+        f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\n\n"
+        f"Ko'rinish: <code>{new_text}</code>")
     context.user_data["emoji_menu"] = True
     await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
 
@@ -2076,17 +1935,18 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             DB["movies"][code]["poster_file_id"] = msg.photo[-1].file_id
             save()
             await sm(context.bot, uid,
-                f"✅ Poster saqlandi! Kod: <code>{code}</code>",
+                f"✅ Poster saqlandi!\nKod: <code>{code}</code>",
                 movie_added_kb(code))
         else:
-            await sm(context.bot, uid, "⚠️ Rasm yuboring!",
+            await sm(context.bot, uid,
+                "⚠️ Rasm yuboring! Yoki matn '0' kiriting.",
                 movie_added_kb(code) if code else None)
         return
 
     if uid == ADMIN_ID and state == "add_ep_video":
         code = context.user_data.get("ep_movie_code")
         if not code:
-            await sm(context.bot, uid, "❌ Kino kodi topilmadi.")
+            await sm(context.bot, uid, "❌ Kino kodi topilmadi. Qaytadan bosing.")
             context.user_data.pop("admin_state", None)
             return
         if msg.video:
@@ -2096,7 +1956,8 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("admin_state")
             context.user_data.pop("ep_movie_code", None)
             await sm(context.bot, uid,
-                f"✅ <b>{ep_num}-qism</b> saqlandi! Kino: <code>{code}</code>",
+                f"✅ <b>{ep_num}-qism</b> saqlandi!\n"
+                f"Kino: <code>{code}</code>",
                 movie_added_kb(code))
         else:
             await sm(context.bot, uid, "⚠️ Faqat video yuboring!")
@@ -2166,8 +2027,7 @@ def main():
     app.add_handler(MessageHandler(filters.Sticker.ALL, sticker_handler))
     app.add_handler(MessageHandler(
         filters.PHOTO | filters.VIDEO | filters.Document.ALL, media_handler))
-    app.add_handler(ChatJoinRequestHandler(join_request_handler))
-    logger.info("Bot ishga tushdi! v9 FIXED")
+    logger.info("Bot ishga tushdi! v9")
     app.run_polling(drop_pending_updates=True)
 
 
