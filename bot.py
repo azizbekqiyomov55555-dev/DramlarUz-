@@ -370,11 +370,16 @@ def broadcast_color_kb():
         [ibtn("❌ Bekor", data="bc_cancel", style="danger")],
     ])
 
-def broadcast_preview_kb(has_btn: bool):
+def broadcast_preview_kb(has_btn: bool, btn_list: list = None):
     rows = []
     rows.append([ibtn("➕ Tugma qo'shish", data="bc_add_btn", style="primary")])
-    if has_btn:
-        rows.append([ibtn("🗑 Tugmani o'chirish", data="bc_remove_btn", style="danger")])
+    if has_btn and btn_list:
+        for i, b in enumerate(btn_list):
+            style = b.get("style", "primary")
+            color_emoji = {"primary": "🔵", "danger": "🔴", "success": "🟢"}.get(style, "⚪")
+            rows.append([ibtn(f"🗑 {color_emoji} {b['text']} o'chirish", data=f"bc_remove_btn|{i}", style="danger")])
+    elif has_btn:
+        rows.append([ibtn("🗑 Tugmani o'chirish", data="bc_remove_btn|0", style="danger")])
     rows.append([
         ibtn("✅ Yuborish", data="bc_send",   style="success"),
         ibtn("❌ Bekor",    data="bc_cancel", style="danger"),
@@ -487,17 +492,15 @@ def clear_admin_state(context):
 def build_broadcast_markup(buttons: list) -> InlineKeyboardMarkup | None:
     if not buttons:
         return None
-    style = buttons[0].get("style", "primary") if buttons else "primary"
     rows = []
     for b in buttons:
-        btn_style = b.get("style", style)
         rows.append([InlineKeyboardButton(b["text"], url=b["url"])])
     return InlineKeyboardMarkup(rows)
 
 async def send_broadcast_preview(bot, uid, bc: dict):
     buttons = bc.get("buttons", [])
     markup = build_broadcast_markup(buttons)
-    preview_kb = broadcast_preview_kb(bool(buttons))
+    preview_kb = broadcast_preview_kb(bool(buttons), buttons)
 
     try:
         if bc.get("type") == "text":
@@ -517,7 +520,9 @@ async def send_broadcast_preview(bot, uid, bc: dict):
 
     btn_info = ""
     if buttons:
-        btn_info = "\n\n<b>Tugmalar:</b>\n" + "\n".join(f"• {b['text']} → {b['url']}" for b in buttons)
+        color_map = {"primary": "🔵", "danger": "🔴", "success": "🟢"}
+        btn_info = "\n\n<b>Tugmalar:</b>\n" + "\n".join(
+            f"• {color_map.get(b.get('style','primary'), '⚪')} {b['text']} → {b['url']}" for b in buttons)
     await bot.send_message(uid,
         f"<b>Preview yuqorida ↑</b>{btn_info}\n\nNima qilasiz?",
         parse_mode="HTML", reply_markup=preview_kb)
@@ -832,14 +837,23 @@ async def cb_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Tugma rangini tanlang:", broadcast_color_kb())
         return
 
-    if data == "bc_remove_btn":
-        bc["buttons"] = []
+    if data == "bc_remove_btn" or data.startswith("bc_remove_btn|"):
+        # Bitta tugmani yoki hammasini o'chirish
+        if "|" in data:
+            try:
+                idx = int(data.split("|")[1])
+                if 0 <= idx < len(bc.get("buttons", [])):
+                    bc["buttons"].pop(idx)
+            except Exception:
+                bc["buttons"] = []
+        else:
+            bc["buttons"] = []
         context.user_data["bc_msg"] = bc
         try:
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
             pass
-        await sm(context.bot, uid, "✅ Tugmalar o'chirildi. Preview:")
+        await sm(context.bot, uid, "✅ Tugma o'chirildi. Preview:")
         await send_broadcast_preview(context.bot, uid, bc)
         return
 
@@ -1201,12 +1215,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── 7. Foydalanuvchi tugmalari ──
     if text == bt("yordam"):
         await context.bot.send_chat_action(uid, action="typing")
-        # Iqtibos (quote) sifatida yuborish
+        # Faqat iqtibos (quote), inline tugmasiz
         await sm(context.bot, uid,
             "💬 <b>Yordam kerakmi?</b>\n\n"
             "Savol yoki muammoingizni <b>matn, rasm yoki video</b> ko'rinishida yuboring.\n"
             "Admin tez orada javob beradi! 🙂",
-            help_kb(),
             reply_to_message_id=msg.message_id)
         context.user_data["awaiting_help"] = True
         return
@@ -1220,7 +1233,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if v_id:
             await context.bot.send_chat_action(uid, action="upload_video")
-            await sv(context.bot, uid, v_id, "<b>Ilovani o'rnatish videosi</b>")
+            await sv(context.bot, uid, v_id, "")
         if f_id:
             await context.bot.send_chat_action(uid, action="upload_document")
             await context.bot.send_document(
@@ -1334,10 +1347,15 @@ async def admin_state_handler(update, context, text):
         return False
 
     if state == "broadcast_msg":
-        # Matnni o'zgartirmasdan saqlash
+        # Matnni o'zgartirmasdan saqlash (iqtibos bo'lsa ham asl matnni ol)
+        msg = update.message
+        real_text = text
+        # Agar iqtibos bo'lsa va matn bo'sh bo'lsa, iqtibos matnini ol
+        if not real_text and msg.reply_to_message:
+            real_text = msg.reply_to_message.text or msg.reply_to_message.caption or ""
         bc = {
             "type": "text",
-            "text": text,
+            "text": real_text,
             "buttons": [],
         }
         context.user_data["bc_msg"] = bc
@@ -1526,18 +1544,35 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Broadcast rasm/video ──
     if uid == ADMIN_ID and state == "broadcast_msg":
         bc = {}
+        # Caption: o'z captioni yoki iqtibos xabarining captioni
+        caption_text = msg.caption or ""
+        if not caption_text and msg.reply_to_message:
+            caption_text = msg.reply_to_message.caption or ""
+
+        # File ID: o'z media si yoki iqtibos xabaridan
+        photo_fid = None
+        video_fid = None
         if msg.photo:
+            photo_fid = msg.photo[-1].file_id
+        elif msg.reply_to_message and msg.reply_to_message.photo:
+            photo_fid = msg.reply_to_message.photo[-1].file_id
+        if msg.video:
+            video_fid = msg.video.file_id
+        elif msg.reply_to_message and msg.reply_to_message.video:
+            video_fid = msg.reply_to_message.video.file_id
+
+        if photo_fid:
             bc = {
                 "type": "photo",
-                "file_id": msg.photo[-1].file_id,
-                "caption": msg.caption or "",
+                "file_id": photo_fid,
+                "caption": caption_text,
                 "buttons": [],
             }
-        elif msg.video:
+        elif video_fid:
             bc = {
                 "type": "video",
-                "file_id": msg.video.file_id,
-                "caption": msg.caption or "",
+                "file_id": video_fid,
+                "caption": caption_text,
                 "buttons": [],
             }
         else:
