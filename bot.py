@@ -476,23 +476,22 @@ def build_broadcast_markup(buttons: list):
         rows.append([ibtn(b["text"], url=b["url"], style=btn_style)])
     return ikb(rows)
 
+# ── FIX: copy_message — premium emoji, format, hamma narsa saqlanadi ──
 async def send_broadcast_preview(bot, uid, bc: dict):
     buttons = bc.get("buttons", [])
     markup = build_broadcast_markup(buttons)
     preview_kb = broadcast_preview_kb(bool(buttons))
 
     try:
-        if bc.get("type") == "text":
-            await bot.send_message(uid, bc["text"], parse_mode="HTML",
-                                   reply_markup=markup)
-        elif bc.get("type") == "photo":
-            await bot.send_photo(uid, bc["file_id"],
-                                 caption=bc.get("caption", ""), parse_mode="HTML",
-                                 reply_markup=markup)
-        elif bc.get("type") == "video":
-            await bot.send_video(uid, bc["file_id"],
-                                 caption=bc.get("caption", ""), parse_mode="HTML",
-                                 reply_markup=markup)
+        kw = {}
+        if markup:
+            kw["reply_markup"] = markup
+        await bot.copy_message(
+            chat_id=uid,
+            from_chat_id=bc["from_chat_id"],
+            message_id=bc["message_id"],
+            **kw
+        )
     except Exception as e:
         await bot.send_message(uid, f"❌ Preview xato: {e}")
         return
@@ -512,17 +511,15 @@ async def do_broadcast(bot, bc: dict):
     fail = 0
     for uid in users:
         try:
-            kw = {"parse_mode": "HTML"}
+            kw = {}
             if markup:
                 kw["reply_markup"] = markup
-            if bc.get("type") == "text":
-                await bot.send_message(int(uid), bc["text"], **kw)
-            elif bc.get("type") == "photo":
-                await bot.send_photo(int(uid), bc["file_id"],
-                                     caption=bc.get("caption", ""), **kw)
-            elif bc.get("type") == "video":
-                await bot.send_video(int(uid), bc["file_id"],
-                                     caption=bc.get("caption", ""), **kw)
+            await bot.copy_message(
+                chat_id=int(uid),
+                from_chat_id=bc["from_chat_id"],
+                message_id=bc["message_id"],
+                **kw
+            )
             ok += 1
             await asyncio.sleep(0.05)
         except Exception as e:
@@ -1229,8 +1226,9 @@ async def admin_state_handler(update, context, text):
 
     if state == "broadcast_msg":
         bc = {
-            "type": "text",
-            "text": text,
+            "type": "copy",
+            "from_chat_id": update.message.chat_id,
+            "message_id": update.message.message_id,
             "buttons": [],
         }
         context.user_data["bc_msg"] = bc
@@ -1435,24 +1433,15 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Broadcast rasm/video ──
     if uid == ADMIN_ID and state == "broadcast_msg":
-        bc = {}
-        if msg.photo:
-            bc = {
-                "type": "photo",
-                "file_id": msg.photo[-1].file_id,
-                "caption": msg.caption or "",
-                "buttons": [],
-            }
-        elif msg.video:
-            bc = {
-                "type": "video",
-                "file_id": msg.video.file_id,
-                "caption": msg.caption or "",
-                "buttons": [],
-            }
-        else:
+        if not (msg.photo or msg.video or msg.document or msg.text):
             await sm(context.bot, uid, "⚠️ Faqat matn, rasm yoki video yuboring.")
             return
+        bc = {
+            "type": "copy",
+            "from_chat_id": msg.chat_id,
+            "message_id": msg.message_id,
+            "buttons": [],
+        }
         context.user_data["bc_msg"] = bc
         context.user_data.pop("admin_state")
         await sm(context.bot, uid, "✅ Xabar qabul qilindi. Preview:")
