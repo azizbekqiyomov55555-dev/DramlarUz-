@@ -61,6 +61,8 @@ DEFAULT_BTN = {
     "orqaga":       "Orqaga",
     "broadcast":    "📢 Barchaga xabar",
     "kino_uch":     "🗑 Kino o'chirish",
+    "prev_qism":    "Oldingi qismlar",
+    "next_qism":    "Boshqa qismlar",
 }
 
 BTN_LABELS = {
@@ -94,6 +96,8 @@ BTN_LABELS = {
     "orqaga":       "Orqaga",
     "broadcast":    "Barchaga xabar",
     "kino_uch":     "Kino o'chirish",
+    "prev_qism":    "Oldingi qismlar tugmasi",
+    "next_qism":    "Boshqa qismlar tugmasi",
 }
 
 LABEL_TO_KEY = {v: k for k, v in BTN_LABELS.items()}
@@ -362,14 +366,18 @@ def movie_episodes_kb(movie, code, user_id, page: int = 0):
             rows.append([ibtn(f"{ek}-qism",
                               data=f"ep|{code}|{ek}", style="success")])
 
-    # Navigatsiya qatori
+    # Navigatsiya qatori (odiy emoji YO'Q — faqat premium emoji icon)
     nav = []
     if page > 0:
-        nav.append(ibtn("⬅️ Oldingi qismlar",
-                        data=f"page|{code}|{page - 1}", style="primary"))
+        nav.append(ibtn(bt("prev_qism"),
+                        data=f"page|{code}|{page - 1}",
+                        style="primary",
+                        emoji_id=get_eid("prev_qism")))
     if page < total_pages - 1:
-        nav.append(ibtn("➡️ Boshqa qismlar",
-                        data=f"page|{code}|{page + 1}", style="primary"))
+        nav.append(ibtn(bt("next_qism"),
+                        data=f"page|{code}|{page + 1}",
+                        style="primary",
+                        emoji_id=get_eid("next_qism")))
     if nav:
         rows.append(nav)
 
