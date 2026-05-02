@@ -22,90 +22,90 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes, filters,
 )
 
-BOT_TOKEN       = "8723400610:AAGID66k5tFnpZZtpZRaSL3h9czRNCkLE1I"
-ADMIN_ID        = 8537782289
+BOT_TOKEN = "8723400610:AAGID66k5tFnpZZtpZRaSL3h9czRNCkLE1I"
+ADMIN_ID = 8537782289
 JSONBIN_API_KEY = "$2a$10$mQZC26SFNwuUJbIo3fANVO3eiIMW4jWdJTva4/6tBlESt4AAde.mi"
-JSONBIN_BIN_ID  = "69cc43a2856a682189e936f0"
-JSONBIN_URL     = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
+JSONBIN_BIN_ID = "69cc43a2856a682189e936f0"
+JSONBIN_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
 
 # Lokal backup fayl â€” JSONBin ishlamasa ham ma'lumot saqlanadi
 LOCAL_BACKUP_FILE = "db_backup.json"
 
 # Saqlash uchun lock (parallel yozishlardan himoya)
 _save_lock = threading.Lock()
-_load_ok = False  # JSONBin'dan muvaffaqiyatli yuklanganmi?
+_load_ok = False # JSONBin'dan muvaffaqiyatli yuklanganmi?
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DEFAULT_BTN = {
-    "yordam":       "Yordam",
-    "install":      "Ilovani o'rnatish",
-    "kino_joy":     "Kino joylash",
-    "qism_qosh":    "Qism qo'shish",
-    "pullik":       "Qismni pullik qilish",
-    "stat":         "Statistika",
-    "kanal_post":   "Kanalga post",
-    "maj_kanal":    "Majburiy kanal",
-    "karta":        "Karta raqami",
-    "ilova":        "Ilova fayl/video",
-    "emoji_soz":    "Emoji sozlamalari",
-    "asosiy":       "Asosiy menyu",
-    "boshqarish":   "âš™ï¸ Boshqarish",
-    "tekshir":      "Tekshirish",
-    "tasdiq":       "Tasdiqlash",
-    "bekor":        "Bekor qilish",
-    "ulash":        "Do'stlarga ulashish",
-    "tomosha":      "Tomosha qilish",
-    "javob":        "Javob berish",
-    "yangi":        "Yangilash",
-    "qism_add":     "Qism qo'shish",
-    "narx_bel":     "Narx belgilash",
-    "kut":          "Tasdiqlanishini kuting",
-    "bosh":         "Bosh menyu",
-    "tiklash":      "Hammasini tiklash",
-    "yopish":       "Yopish",
-    "default_q":    "Defaultga qaytarish",
-    "orqaga":       "Orqaga",
-    "broadcast":    "ðŸ“¢ Barchaga xabar",
-    "kino_uch":     "ðŸ—‘ Kino o'chirish",
-    "prev_qism":    "Oldingi qismlar",
-    "next_qism":    "Boshqa qismlar",
+    "yordam": "Yordam",
+    "install": "Ilovani o'rnatish",
+    "kino_joy": "Kino joylash",
+    "qism_qosh": "Qism qo'shish",
+    "pullik": "Qismni pullik qilish",
+    "stat": "Statistika",
+    "kanal_post": "Kanalga post",
+    "maj_kanal": "Majburiy kanal",
+    "karta": "Karta raqami",
+    "ilova": "Ilova fayl/video",
+    "emoji_soz": "Emoji sozlamalari",
+    "asosiy": "Asosiy menyu",
+    "boshqarish": "âš™ï¸ Boshqarish",
+    "tekshir": "Tekshirish",
+    "tasdiq": "Tasdiqlash",
+    "bekor": "Bekor qilish",
+    "ulash": "Do'stlarga ulashish",
+    "tomosha": "Tomosha qilish",
+    "javob": "Javob berish",
+    "yangi": "Yangilash",
+    "qism_add": "Qism qo'shish",
+    "narx_bel": "Narx belgilash",
+    "kut": "Tasdiqlanishini kuting",
+    "bosh": "Bosh menyu",
+    "tiklash": "Hammasini tiklash",
+    "yopish": "Yopish",
+    "default_q": "Defaultga qaytarish",
+    "orqaga": "Orqaga",
+    "broadcast": "ðŸ“¢ Barchaga xabar",
+    "kino_uch": "ðŸ—‘ Kino o'chirish",
+    "prev_qism": "Oldingi qismlar",
+    "next_qism": "Boshqa qismlar",
 }
 
 BTN_LABELS = {
-    "yordam":       "Yordam tugmasi",
-    "install":      "O'rnatish tugmasi",
-    "kino_joy":     "Kino joylash",
-    "qism_qosh":    "Qism qo'shish",
-    "pullik":       "Pullik qilish",
-    "stat":         "Statistika",
-    "kanal_post":   "Kanalga post",
-    "maj_kanal":    "Majburiy kanal",
-    "karta":        "Karta raqami",
-    "ilova":        "Ilova fayl/video",
-    "emoji_soz":    "Emoji sozlamalari",
-    "asosiy":       "Asosiy menyu",
-    "boshqarish":   "âš™ï¸ Boshqarish",
-    "tekshir":      "Tekshirish",
-    "tasdiq":       "Tasdiqlash",
-    "bekor":        "Bekor qilish",
-    "ulash":        "Ulashish",
-    "tomosha":      "Tomosha qilish",
-    "javob":        "Javob berish",
-    "yangi":        "Yangilash",
-    "qism_add":     "Qism qo'shish (inline)",
-    "narx_bel":     "Narx belgilash",
-    "kut":          "Kuting tugmasi",
-    "bosh":         "Bosh menyu (inline)",
-    "tiklash":      "Hammasini tiklash",
-    "yopish":       "Yopish",
-    "default_q":    "Defaultga qaytarish",
-    "orqaga":       "Orqaga",
-    "broadcast":    "Barchaga xabar",
-    "kino_uch":     "Kino o'chirish",
-    "prev_qism":    "Oldingi qismlar tugmasi",
-    "next_qism":    "Boshqa qismlar tugmasi",
+    "yordam": "Yordam tugmasi",
+    "install": "O'rnatish tugmasi",
+    "kino_joy": "Kino joylash",
+    "qism_qosh": "Qism qo'shish",
+    "pullik": "Pullik qilish",
+    "stat": "Statistika",
+    "kanal_post": "Kanalga post",
+    "maj_kanal": "Majburiy kanal",
+    "karta": "Karta raqami",
+    "ilova": "Ilova fayl/video",
+    "emoji_soz": "Emoji sozlamalari",
+    "asosiy": "Asosiy menyu",
+    "boshqarish": "âš™ï¸ Boshqarish",
+    "tekshir": "Tekshirish",
+    "tasdiq": "Tasdiqlash",
+    "bekor": "Bekor qilish",
+    "ulash": "Ulashish",
+    "tomosha": "Tomosha qilish",
+    "javob": "Javob berish",
+    "yangi": "Yangilash",
+    "qism_add": "Qism qo'shish (inline)",
+    "narx_bel": "Narx belgilash",
+    "kut": "Kuting tugmasi",
+    "bosh": "Bosh menyu (inline)",
+    "tiklash": "Hammasini tiklash",
+    "yopish": "Yopish",
+    "default_q": "Defaultga qaytarish",
+    "orqaga": "Orqaga",
+    "broadcast": "Barchaga xabar",
+    "kino_uch": "Kino o'chirish",
+    "prev_qism": "Oldingi qismlar tugmasi",
+    "next_qism": "Boshqa qismlar tugmasi",
 }
 
 LABEL_TO_KEY = {v: k for k, v in BTN_LABELS.items()}
@@ -121,9 +121,9 @@ DEFAULT_DB = {
 
 EMOJI_IDS: dict = {}
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # DB
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 def db_load():
     global _load_ok
@@ -169,7 +169,7 @@ def db_load():
             EMOJI_IDS.clear()
             EMOJI_IDS.update(data.get("emoji_ids", {}))
             logger.warning("âš ï¸ JSONBin ishlamadi â€” LOKAL BACKUPDAN yuklandi!")
-            _load_ok = True  # Backup ham haqiqiy ma'lumot
+            _load_ok = True # Backup ham haqiqiy ma'lumot
             return data
         except Exception as e:
             logger.error(f"Lokal backup yuklashda xato: {e}")
@@ -177,7 +177,6 @@ def db_load():
     # Bu holatda save() ishlamaydi (ma'lumot yo'qolmasligi uchun)
     logger.error("âŒ DB yuklab bo'lmadi! Saqlash bloklandi.")
     return json.loads(json.dumps(DEFAULT_DB))
-
 
 async def db_save_async(data):
     """Async saqlash â€” JSONBin + lokal backup."""
@@ -208,7 +207,7 @@ async def db_save_async(data):
                     timeout=aiohttp.ClientTimeout(total=30)
                 ) as resp:
                     if resp.status == 200:
-                        logger.info("DB saqlandi âœ“ (JSONBin + backup)")
+                        logger.info("DB saqlandi (JSONBin + backup)")
                         return True
                     else:
                         txt = await resp.text()
@@ -219,7 +218,6 @@ async def db_save_async(data):
             await asyncio.sleep(2)
     logger.warning("âš ï¸ JSONBin'ga saqlanmadi, ammo lokal backup mavjud")
     return False
-
 
 def db_save(data):
     """Sinxron saqlash â€” JSONBin + lokal backup."""
@@ -248,7 +246,7 @@ def db_save(data):
                     },
                     data=payload, timeout=30)
                 if r.status_code == 200:
-                    logger.info("DB saqlandi âœ“ (sync)")
+                    logger.info("DB saqlandi (sync)")
                     return True
                 else:
                     logger.error(f"JSONBin status {r.status_code}: {r.text[:200]}")
@@ -258,9 +256,7 @@ def db_save(data):
                 time.sleep(2)
         return False
 
-
 DB = db_load()
-
 
 def save():
     """Asosiy saqlash funksiyasi â€” har doim chaqirsa bo'ladi."""
@@ -279,21 +275,18 @@ def save():
         # Event loop yo'q â€” sinxron saqlaymiz
         db_save(DB)
 
-
 def save_sync():
     db_save(DB)
-
 
 def bt(key):
     return DB.get("btn_texts", {}).get(key) or DEFAULT_BTN.get(key, "")
 
-
 def get_eid(key):
     return EMOJI_IDS.get(key)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # EMOJI
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 EMOJI_RE = re.compile(
     r'[\U0001F000-\U0001FFFF'
@@ -305,11 +298,9 @@ EMOJI_RE = re.compile(
     r']+'
 )
 
-
 def is_only_emoji(text: str) -> bool:
     cleaned = EMOJI_RE.sub('', text).strip()
     return len(cleaned) == 0 and len(text.strip()) > 0
-
 
 def extract_emoji_prefix(text: str) -> str:
     match = re.match(
@@ -318,14 +309,12 @@ def extract_emoji_prefix(text: str) -> str:
     )
     return match.group(1).rstrip() if match else ""
 
-
 def strip_emoji_prefix(text: str) -> str:
     result = re.sub(
         r'^(?:[\U0001F000-\U0001FFFF\u2600-\u27BF\uFE00-\uFE0F\u200d\ufe0f]+\s*)+',
         '', text
     ).strip()
     return result
-
 
 def extract_custom_emoji_id(message) -> str | None:
     if not message.entities:
@@ -334,7 +323,6 @@ def extract_custom_emoji_id(message) -> str | None:
         if entity.type == "custom_emoji":
             return entity.custom_emoji_id
     return None
-
 
 def find_key_by_text(text: str) -> str | None:
     if text in LABEL_TO_KEY:
@@ -347,77 +335,71 @@ def find_key_by_text(text: str) -> str | None:
             return key
     return None
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # TUGMA YARATISH
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
     b = {"text": text}
-    if data:     b["callback_data"] = data
-    if url:      b["url"] = url
-    if style:    b["style"] = style
+    if data: b["callback_data"] = data
+    if url: b["url"] = url
+    if style: b["style"] = style
     if emoji_id: b["icon_custom_emoji_id"] = emoji_id
     return b
-
 
 def rbtn(text, style=None, emoji_id=None):
     b = {"text": text}
-    if style:    b["style"] = style
+    if style: b["style"] = style
     if emoji_id: b["icon_custom_emoji_id"] = emoji_id
     return b
-
 
 def ikb(rows):
     return {"inline_keyboard": rows}
 
-
 def rkb(rows, resize=True):
     return {"keyboard": rows, "resize_keyboard": resize}
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # KLAVIATURALAR
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 def main_menu_kb(is_admin=False):
     rows = [[
-        rbtn(bt("yordam"),  style="primary", emoji_id=get_eid("yordam")),
+        rbtn(bt("yordam"), style="primary", emoji_id=get_eid("yordam")),
         rbtn(bt("install"), style="success", emoji_id=get_eid("install")),
     ]]
     if is_admin:
         rows.append([rbtn(bt("boshqarish"), style="primary", emoji_id=get_eid("boshqarish"))])
     return rkb(rows)
 
-
 def admin_menu_kb():
     return rkb([
-        [rbtn(bt("kino_joy"),   style="success", emoji_id=get_eid("kino_joy")),
-         rbtn(bt("qism_qosh"),  style="primary", emoji_id=get_eid("qism_qosh"))],
-        [rbtn(bt("pullik"),     style="danger",  emoji_id=get_eid("pullik")),
-         rbtn(bt("stat"),       style="primary", emoji_id=get_eid("stat"))],
+        [rbtn(bt("kino_joy"), style="success", emoji_id=get_eid("kino_joy")),
+         rbtn(bt("qism_qosh"), style="primary", emoji_id=get_eid("qism_qosh"))],
+        [rbtn(bt("pullik"), style="danger", emoji_id=get_eid("pullik")),
+         rbtn(bt("stat"), style="primary", emoji_id=get_eid("stat"))],
         [rbtn(bt("kanal_post"), style="primary", emoji_id=get_eid("kanal_post")),
-         rbtn(bt("maj_kanal"),  style="danger",  emoji_id=get_eid("maj_kanal"))],
-        [rbtn(bt("karta"),      style="success", emoji_id=get_eid("karta")),
-         rbtn(bt("ilova"),      style="primary", emoji_id=get_eid("ilova"))],
-        [rbtn(bt("emoji_soz"),  style="primary", emoji_id=get_eid("emoji_soz"))],
-        [rbtn(bt("kino_uch"),   style="danger",  emoji_id=get_eid("kino_uch")),
-         rbtn(bt("broadcast"),  style="danger",  emoji_id=get_eid("broadcast"))],
-        [rbtn(bt("asosiy"),     style="success", emoji_id=get_eid("asosiy"))],
+         rbtn(bt("maj_kanal"), style="danger", emoji_id=get_eid("maj_kanal"))],
+        [rbtn(bt("karta"), style="success", emoji_id=get_eid("karta")),
+         rbtn(bt("ilova"), style="primary", emoji_id=get_eid("ilova"))],
+        [rbtn(bt("emoji_soz"), style="primary", emoji_id=get_eid("emoji_soz"))],
+        [rbtn(bt("kino_uch"), style="danger", emoji_id=get_eid("kino_uch")),
+         rbtn(bt("broadcast"), style="danger", emoji_id=get_eid("broadcast"))],
+        [rbtn(bt("asosiy"), style="success", emoji_id=get_eid("asosiy"))],
     ])
 
-
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # MAJBURIY KANAL KLAVIATURALARI (YANGI)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 def channel_manage_kb():
     """Majburiy kanal boshqarish submenu klaviaturasi"""
     return rkb([
-        [rbtn("âž• Kanal qo'shish",  style="success"),
-         rbtn("ðŸ—‘ Kanal o'chirish",  style="danger")],
+        [rbtn("âž• Kanal qo'shish", style="success"),
+         rbtn("ðŸ—‘ Kanal o'chirish", style="danger")],
         [rbtn("ðŸ“‹ Kanallar ro'yxati", style="primary")],
-        [rbtn("â¬…ï¸ Admin panel",       style="success")],
+        [rbtn("ï¸ Admin panel", style="success")],
     ])
-
 
 def channel_delete_inline_kb(channels):
     """O'chirish uchun inline tugmalar ro'yxati"""
@@ -431,15 +413,12 @@ def channel_delete_inline_kb(channels):
     rows.append([ibtn("âŒ Bekor", data="ch_del_cancel", style="primary")])
     return ikb(rows)
 
-
 def subscription_kb(channels):
     rows = [[ibtn(c['title'], url=c["url"], style="primary")] for c in channels]
     rows.append([ibtn(bt("tekshir"), data="check_sub", style="success", emoji_id=get_eid("tekshir"))])
     return ikb(rows)
 
-
 PAGE_SIZE = 5
-
 
 def movie_episodes_kb(movie, code, user_id, page: int = 0):
     eps = movie.get("episodes", [])
@@ -450,7 +429,7 @@ def movie_episodes_kb(movie, code, user_id, page: int = 0):
     page = max(0, min(page, total_pages - 1))
 
     start = page * PAGE_SIZE
-    end   = min(start + PAGE_SIZE, total)
+    end = min(start + PAGE_SIZE, total)
 
     rows = []
     for i in range(start, end):
@@ -458,7 +437,7 @@ def movie_episodes_kb(movie, code, user_id, page: int = 0):
         price = prices.get(ek)
         locked = price and not paid.get(f"{code}_{ek}")
         if locked:
-            rows.append([ibtn(f"{ek}-qism  ðŸ’° {price} so'm",
+            rows.append([ibtn(f"{ek}-qism ðŸ’° {price} so'm",
                               data=f"ep|{code}|{ek}", style="danger")])
         else:
             rows.append([ibtn(f"{ek}-qism",
@@ -480,46 +459,37 @@ def movie_episodes_kb(movie, code, user_id, page: int = 0):
 
     return ikb(rows)
 
-
 def payment_admin_kb(pid):
     return ikb([[
         ibtn(bt("tasdiq"), data=f"pay_ok|{pid}", style="success", emoji_id=get_eid("tasdiq")),
-        ibtn(bt("bekor"),  data=f"pay_no|{pid}", style="danger",  emoji_id=get_eid("bekor")),
+        ibtn(bt("bekor"), data=f"pay_no|{pid}", style="danger", emoji_id=get_eid("bekor")),
     ]])
-
 
 def share_kb(url):
     return ikb([[ibtn(bt("ulash"), url=url, style="primary", emoji_id=get_eid("ulash"))]])
-
 
 def channel_post_kb(bot_username, code):
     return ikb([[ibtn(bt("tomosha"),
         url=f"https://t.me/{bot_username}?start=code_{code}", style="success",
         emoji_id=get_eid("tomosha"))]])
 
-
 def reply_admin_kb(uid):
     return ikb([[ibtn(bt("javob"), data=f"reply|{uid}", style="primary", emoji_id=get_eid("javob"))]])
-
 
 def stats_kb():
     return ikb([[ibtn(bt("yangi"), data="refresh_stats", style="primary", emoji_id=get_eid("yangi"))]])
 
-
 def movie_added_kb(code):
     return ikb([[
         ibtn(bt("qism_add"), data=f"quick_add_ep|{code}", style="success", emoji_id=get_eid("qism_add")),
-        ibtn(bt("narx_bel"), data=f"quick_price|{code}",  style="primary", emoji_id=get_eid("narx_bel")),
+        ibtn(bt("narx_bel"), data=f"quick_price|{code}", style="primary", emoji_id=get_eid("narx_bel")),
     ]])
-
 
 def payment_sent_kb():
     return ikb([[ibtn(bt("kut"), data="waiting_confirm", style="primary", emoji_id=get_eid("kut"))]])
 
-
 def help_kb():
     return ikb([[ibtn(bt("bosh"), data="go_home", style="success", emoji_id=get_eid("bosh"))]])
-
 
 def emoji_menu_kb():
     rows = []
@@ -532,27 +502,24 @@ def emoji_menu_kb():
             row.append(rbtn(label, style="primary", emoji_id=eid))
         rows.append(row)
     rows.append([rbtn("ðŸ—‘ Hammasini tiklash", style="danger")])
-    rows.append([rbtn("â¬…ï¸ Orqaga",            style="success")])
+    rows.append([rbtn("ï¸ Orqaga", style="success")])
     return rkb(rows)
-
 
 def emoji_single_action_kb(key):
     return ikb([
         [ibtn("ðŸ—‘ Defaultga qaytarish", data=f"emoji_reset|{key}", style="danger")],
-        [ibtn("â¬…ï¸ Orqaga",              data="emoji_back",          style="success")],
+        [ibtn("ï¸ Orqaga", data="emoji_back", style="success")],
     ])
-
 
 def broadcast_color_kb():
     return ikb([
         [
-            ibtn("ðŸ”µ Ko'k",   data="bc_color|primary", style="primary"),
-            ibtn("ðŸ”´ Qizil",  data="bc_color|danger",  style="danger"),
+            ibtn("ðŸ”µ Ko'k", data="bc_color|primary", style="primary"),
+            ibtn("ðŸ”´ Qizil", data="bc_color|danger", style="danger"),
             ibtn("ðŸŸ¢ Yashil", data="bc_color|success", style="success"),
         ],
         [ibtn("âŒ Bekor", data="bc_cancel", style="danger")],
     ])
-
 
 def broadcast_preview_kb(has_btn: bool):
     rows = []
@@ -560,14 +527,14 @@ def broadcast_preview_kb(has_btn: bool):
     if has_btn:
         rows.append([ibtn("ðŸ—‘ Tugmani o'chirish", data="bc_remove_btn", style="danger")])
     rows.append([
-        ibtn("âœ… Yuborish", data="bc_send",   style="success"),
-        ibtn("âŒ Bekor",    data="bc_cancel", style="danger"),
+        ibtn("âœ… Yuborish", data="bc_send", style="success"),
+        ibtn("âŒ Bekor", data="bc_cancel", style="danger"),
     ])
     return ikb(rows)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # XABAR YUBORISH
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 async def sm(bot, chat_id, text, markup=None, pm="HTML", reply_to_message_id=None):
     kw = {"chat_id": chat_id, "text": text, "parse_mode": pm}
@@ -577,13 +544,11 @@ async def sm(bot, chat_id, text, markup=None, pm="HTML", reply_to_message_id=Non
         kw["reply_to_message_id"] = reply_to_message_id
     return await bot.send_message(**kw)
 
-
 async def sp(bot, chat_id, photo, caption, markup=None, pm="HTML"):
     kw = {"chat_id": chat_id, "photo": photo, "caption": caption, "parse_mode": pm}
     if markup:
         kw["reply_markup"] = markup
     return await bot.send_photo(**kw)
-
 
 async def sv(bot, chat_id, video, caption, markup=None, pm="HTML", protect=False):
     kw = {"chat_id": chat_id, "video": video, "caption": caption, "parse_mode": pm}
@@ -593,9 +558,9 @@ async def sv(bot, chat_id, video, caption, markup=None, pm="HTML", protect=False
         kw["protect_content"] = True
     return await bot.send_video(**kw)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # YORDAMCHI
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 async def check_subscription(user_id, bot):
     not_subbed = []
@@ -609,7 +574,6 @@ async def check_subscription(user_id, bot):
             not_subbed.append(ch)
     return not_subbed
 
-
 def register_user(user):
     uid = str(user.id)
     if uid not in DB["users"]:
@@ -618,7 +582,6 @@ def register_user(user):
             "joined": datetime.now().isoformat(), "paid_episodes": {}, "watched": {}
         }
         save()
-
 
 async def send_movie_menu(src, context, code):
     movie = DB["movies"].get(code)
@@ -633,7 +596,7 @@ async def send_movie_menu(src, context, code):
         return
     markup = movie_episodes_kb(movie, code, user_id, page=0)
     total_pages = max(1, (len(eps) + PAGE_SIZE - 1) // PAGE_SIZE)
-    page_info = f"  (1/{total_pages} sahifa)" if total_pages > 1 else ""
+    page_info = f" (1/{total_pages} sahifa)" if total_pages > 1 else ""
     caption = (f"ðŸŽ¬ <b>{movie.get('title', 'Kino')}</b>\n"
                f"ðŸ“º Qismlar soni: <b>{len(eps)} ta</b>{page_info}\n\n"
                f"ðŸ‘‡ Qaysi qismni ko'rmoqchisiz?")
@@ -646,7 +609,6 @@ async def send_movie_menu(src, context, code):
     except Exception as e:
         logger.error(f"send_movie_menu: {e}")
 
-
 def clear_admin_state(context):
     for key in ["admin_state", "new_movie_code", "ep_movie_code",
                 "price_movie_code", "price_ep", "post_code",
@@ -657,7 +619,6 @@ def clear_admin_state(context):
                 "channel_manage_menu"]:
         context.user_data.pop(key, None)
 
-
 def _build_ep_price_list(code: str, eps: list, prices: dict) -> str:
     if not eps:
         return "âš ï¸ Bu kinoda hali qism yo'q."
@@ -666,11 +627,10 @@ def _build_ep_price_list(code: str, eps: list, prices: dict) -> str:
         ek = str(i + 1)
         price = prices.get(ek)
         if price:
-            lines.append(f"  {ek}-qism â€” ðŸ’° <b>{price} so'm</b>")
+            lines.append(f" {ek}-qism â€” ðŸ’° <b>{price} so'm</b>")
         else:
-            lines.append(f"  {ek}-qism â€” bepul")
+            lines.append(f" {ek}-qism â€” bepul")
     return f"ðŸ“º Qismlar ({len(eps)} ta):\n" + "\n".join(lines)
-
 
 def _channels_list_text() -> str:
     """Kanallar ro'yxatini matn ko'rinishida chiqaradi."""
@@ -679,12 +639,12 @@ def _channels_list_text() -> str:
         return "ðŸ“­ Hozircha majburiy kanal yo'q."
     lines = []
     for i, ch in enumerate(channels, 1):
-        lines.append(f"  {i}. <b>{ch['title']}</b> â€” {ch['username']}")
+        lines.append(f" {i}. <b>{ch['title']}</b> â€” {ch['username']}")
     return f"ðŸ“‹ <b>Majburiy kanallar</b> ({len(channels)} ta):\n\n" + "\n".join(lines)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # BROADCAST
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 def build_broadcast_markup(buttons: list):
     if not buttons:
@@ -694,7 +654,6 @@ def build_broadcast_markup(buttons: list):
         btn_style = b.get("style", "primary")
         rows.append([ibtn(b["text"], url=b["url"], style=btn_style)])
     return ikb(rows)
-
 
 async def send_broadcast_preview(bot, uid, bc: dict):
     buttons = bc.get("buttons", [])
@@ -717,11 +676,10 @@ async def send_broadcast_preview(bot, uid, bc: dict):
     btn_info = ""
     if buttons:
         btn_info = "\n\n<b>Tugmalar:</b>\n" + "\n".join(
-            f"â€¢ {b['text']} â†’ {b['url']}" for b in buttons)
+            f" {b['text']} {b['url']}" for b in buttons)
     await bot.send_message(uid,
-        f"<b>Preview yuqorida â†‘</b>{btn_info}\n\nNima qilasiz?",
+        f"<b>Preview yuqorida </b>{btn_info}\n\nNima qilasiz?",
         parse_mode="HTML", reply_markup=preview_kb)
-
 
 async def do_broadcast(bot, bc: dict):
     users = list(DB["users"].keys())
@@ -747,9 +705,9 @@ async def do_broadcast(bot, bc: dict):
             logger.warning(f"Broadcast uid={uid}: {e}")
     return ok, fail
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # START
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -783,9 +741,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = (user.id == ADMIN_ID)
     await sm(context.bot, user.id, hello, main_menu_kb(is_admin=is_admin))
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # CALLBACK HANDLER
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -796,9 +754,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cb_broadcast(update, context)
         return
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    #
     # KANAL O'CHIRISH CALLBACK (YANGI)
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    #
     if data.startswith("ch_del|"):
         if uid != ADMIN_ID:
             await q.answer("Ruxsat yo'q", show_alert=True)
@@ -970,7 +928,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await q.answer()
 
-
 async def cb_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     uid = q.from_user.id
@@ -1045,7 +1002,6 @@ async def cb_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "Admin panel", admin_menu_kb())
         return
 
-
 async def cb_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -1068,7 +1024,7 @@ async def cb_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     markup = movie_episodes_kb(movie, code, user_id, page=page)
     total_pages = max(1, (len(eps) + PAGE_SIZE - 1) // PAGE_SIZE)
     caption = (f"ðŸŽ¬ <b>{movie.get('title', 'Kino')}</b>\n"
-               f"ðŸ“º Qismlar soni: <b>{len(eps)} ta</b>  "
+               f"ðŸ“º Qismlar soni: <b>{len(eps)} ta</b> "
                f"({page + 1}/{total_pages} sahifa)\n\n"
                f"ðŸ‘‡ Qaysi qismni ko'rmoqchisiz?")
     try:
@@ -1080,7 +1036,6 @@ async def cb_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                       reply_markup=markup)
         except Exception as e:
             logger.error(f"cb_page edit error: {e}")
-
 
 async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1101,7 +1056,6 @@ async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, q.from_user.id,
             f"ðŸŽ‰ Xush kelibsiz, <b>{q.from_user.full_name}</b>!\n\nKino kodini yuboring ðŸ‘‡",
             main_menu_kb(is_admin=(q.from_user.id == ADMIN_ID)))
-
 
 async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1160,7 +1114,6 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db_save_async(DB)
 
     asyncio.create_task(update_stats())
-
 
 async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1222,7 +1175,6 @@ async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, pay["user_id"],
             "<b>Admin to'lovingizni tasdiqladi!</b>")
 
-
 async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -1230,9 +1182,9 @@ async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["reply_to"] = int(uid)
     await q.message.reply_text(f"<code>{uid}</code> ga xabar yozing.", parse_mode="HTML")
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # TEXT HANDLER
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1240,7 +1192,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     text = (msg.text or "").strip()
 
-    # â”€â”€ 1. editing_btn_key â”€â”€
+    # 1. editing_btn_key
     if uid == ADMIN_ID and context.user_data.get("editing_btn_key"):
         key = context.user_data.pop("editing_btn_key")
         if not text:
@@ -1290,7 +1242,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
         return
 
-    # â”€â”€ 2. Broadcast tugma qo'shish â”€â”€
+    # 2. Broadcast tugma qo'shish
     if uid == ADMIN_ID and context.user_data.get("bc_adding_btn"):
         stage = context.user_data["bc_adding_btn"]
         bc = context.user_data.get("bc_msg", {})
@@ -1310,9 +1262,9 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_broadcast_preview(context.bot, uid, bc)
         return
 
-    # â”€â”€ 3. Emoji menyu â”€â”€
+    # 3. Emoji menyu
     if uid == ADMIN_ID and context.user_data.get("emoji_menu"):
-        if text == "â¬…ï¸ Orqaga":
+        if text == "ï¸ Orqaga":
             context.user_data.pop("emoji_menu", None)
             context.user_data.pop("editing_btn_key", None)
             await sm(context.bot, uid, "Admin panel", admin_menu_kb())
@@ -1338,15 +1290,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"<b>{BTN_LABELS.get(key, key)}</b>\n\n"
                 f"Hozirgi matn: <code>{cur}</code>{eid_info}{emoji_info}\n\n"
                 f"Yuboring:\n"
-                f"â€¢ Faqat emoji â†’ qo'shiladi\n"
-                f"â€¢ Emoji + matn â†’ to'liq yangilanadi\n"
-                f"â€¢ Custom emoji â†’ icon sifatida\n"
-                f"â€¢ Faqat matn â†’ barcha emoji o'chadi",
+                f" Faqat emoji qo'shiladi\n"
+                f" Emoji + matn to'liq yangilanadi\n"
+                f" Custom emoji icon sifatida\n"
+                f" Faqat matn barcha emoji o'chadi",
                 emoji_single_action_kb(key))
             return
         return
 
-    # â”€â”€ 4. Kanal boshqarish submenu â”€â”€
+    # 4. Kanal boshqarish submenu
     if uid == ADMIN_ID and context.user_data.get("channel_manage_menu"):
         # Agar kanal qo'shish jarayonida bo'lsa â€” admin_state_handler ga yuboramiz
         ch_states = ("add_channel_username", "add_channel_title", "add_channel_url", "add_channel")
@@ -1355,7 +1307,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if handled:
                 return
 
-        if text == "â¬…ï¸ Admin panel":
+        if text == "ï¸ Admin panel":
             context.user_data.pop("channel_manage_menu", None)
             context.user_data.pop("admin_state", None)
             await sm(context.bot, uid, "Admin panel", admin_menu_kb())
@@ -1386,7 +1338,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         return
 
-    # â”€â”€ 5. Admin reply_to â”€â”€
+    # 5. Admin reply_to
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
@@ -1396,7 +1348,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, f"âŒ Xato: {e}")
         return
 
-    # â”€â”€ 6. Admin holat handler (price state'lari) â”€â”€
+    # 6. Admin holat handler (price state'lari)
     if uid == ADMIN_ID:
         state = context.user_data.get("admin_state")
         if state in ("set_price_code", "set_price_ep", "set_price_amount"):
@@ -1404,7 +1356,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if handled:
                 return
 
-    # â”€â”€ 7. Admin tugmalarini aniqlash â”€â”€
+    # 7. Admin tugmalarini aniqlash
     all_admin_btns = {bt(k) for k in [
         "kino_joy", "qism_qosh", "pullik", "stat",
         "kanal_post", "maj_kanal", "karta", "ilova",
@@ -1448,13 +1400,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_buttons(update, context, text)
         return
 
-    # â”€â”€ 8. Admin holat handler (boshqa state'lar) â”€â”€
+    # 8. Admin holat handler (boshqa state'lar)
     if uid == ADMIN_ID:
         handled = await admin_state_handler(update, context, text)
         if handled:
             return
 
-    # â”€â”€ 9. Foydalanuvchi tugmalari â”€â”€
+    # 9. Foydalanuvchi tugmalari
     if text == bt("yordam"):
         await context.bot.send_chat_action(uid, action="typing")
         await sm(context.bot, uid,
@@ -1482,7 +1434,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML")
         return
 
-    # â”€â”€ 10. Yordam so'rovi â”€â”€
+    # 10. Yordam so'rovi
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         cap = (f"<b>Yordam so'rovi</b>\n{user.full_name} (@{user.username or '-'})\n"
@@ -1491,12 +1443,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "âœ… Xabaringiz adminga yuborildi!")
         return
 
-    # â”€â”€ 11. To'lov cheki â”€â”€
+    # 11. To'lov cheki
     if context.user_data.get("awaiting_check"):
         await sm(context.bot, uid, "Iltimos, chek <b>rasmini</b> yuboring.")
         return
 
-    # â”€â”€ 12. Kino kodi â”€â”€
+    # 12. Kino kodi
     code = text.upper().strip()
     if code in DB["movies"]:
         ns = await check_subscription(uid, context.bot)
@@ -1510,7 +1462,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_movie_menu(update, context, code)
     else:
         await sm(context.bot, uid, "âŒ Bunday kod topilmadi.\n\nTo'g'ri kino kodini yuboring ðŸ‘‡")
-
 
 async def admin_buttons(update, context, text):
     uid = update.effective_user.id
@@ -1569,9 +1520,9 @@ async def admin_buttons(update, context, text):
         await sm(context.bot, uid, "Ilova fayl yoki video yuboring:")
         return
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    #
     # TUZATISH: maj_kanal â€” submenu ochadi
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    #
     if text == bt("maj_kanal"):
         context.user_data.pop("admin_state", None)
         context.user_data["channel_manage_menu"] = True
@@ -1587,7 +1538,6 @@ async def admin_buttons(update, context, text):
         context.user_data["admin_state"] = "post_channel_code"
         await sm(context.bot, uid, "Post qilmoqchi bo'lgan kino kodini kiriting:")
         return
-
 
 async def admin_state_handler(update, context, text):
     state = context.user_data.get("admin_state")
@@ -1619,15 +1569,15 @@ async def admin_state_handler(update, context, text):
         eps = movie.get("episodes", [])
         context.user_data["del_movie_code"] = code
         context.user_data["admin_state"] = "delete_movie_ep"
-        ep_list = "\n".join([f"  {i+1}-qism" for i in range(len(eps))]) if eps else "  (qismlar yo'q)"
+        ep_list = "\n".join([f" {i+1}-qism" for i in range(len(eps))]) if eps else " (qismlar yo'q)"
         await sm(context.bot, uid,
-            f"ðŸŽ¬ <b>{title}</b>  |  <code>{code}</code>\n"
+            f"ðŸŽ¬ <b>{title}</b> | <code>{code}</code>\n"
             f"ðŸ“º Qismlar soni: <b>{len(eps)} ta</b>\n\n"
             f"{ep_list}\n\n"
             f"Qaysi qismni o'chirmoqchisiz?\n"
-            f"â€¢ Raqam kiriting (masalan: <code>3</code>)\n"
-            f"â€¢ Barcha qismlarni o'chirish: <code>hammasi</code>\n"
-            f"â€¢ Kinoni butunlay o'chirish: <code>kino</code>")
+            f" Raqam kiriting (masalan: <code>3</code>)\n"
+            f" Barcha qismlarni o'chirish: <code>hammasi</code>\n"
+            f" Kinoni butunlay o'chirish: <code>kino</code>")
         return True
 
     if state == "delete_movie_ep":
@@ -1858,9 +1808,9 @@ async def admin_state_handler(update, context, text):
                 admin_menu_kb())
         return True
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    #
     # TUZATISH: add_channel â€” to'g'ri format tekshiruvi
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    #
     if state == "add_channel_username":
         # Username qabul qilish
         uname = text.strip()
@@ -2006,9 +1956,9 @@ async def admin_state_handler(update, context, text):
 
     return False
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # STICKER HANDLER
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -2050,9 +2000,9 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["emoji_menu"] = True
     await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # MEDIA HANDLER
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -2161,9 +2111,9 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await sm(context.bot, uid, f"âŒ Xato: {e}")
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 # MAIN
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -2175,7 +2125,6 @@ def main():
         filters.PHOTO | filters.VIDEO | filters.Document.ALL, media_handler))
     logger.info("Bot ishga tushdi! v9")
     app.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     main()
