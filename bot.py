@@ -12,7 +12,11 @@ import logging, asyncio, json, time, re
 from datetime import datetime
 import requests
 import aiohttp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest
+from telegram import (
+    Update, ChatJoinRequest,
+    InlineKeyboardButton, InlineKeyboardMarkup,
+    ReplyKeyboardMarkup, KeyboardButton,
+)
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters, ChatJoinRequestHandler,
@@ -269,31 +273,47 @@ def find_key_by_text(text: str) -> str | None:
     return None
 
 # ══════════════════════════════════════════════════════════
-# TUGMA YARATISH
+# TUGMA YARATISH — to'g'ri PTB obyektlari
 # ══════════════════════════════════════════════════════════
 
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
-    b = {"text": text}
-    if data:     b["callback_data"] = data
-    if url:      b["url"] = url
-    if style:    b["style"] = style
-    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
-    return b
+    """
+    InlineKeyboardButton qaytaradi.
+    icon_custom_emoji_id — Bot API 9.x xususiyati,
+    PTB versiyasiga qarab qo'llab-quvvatlanmasligi mumkin.
+    Shuning uchun avval oddiy tugma yasaymiz, keyin attribute qo'shamiz.
+    """
+    kw = {"text": text}
+    if data:
+        kw["callback_data"] = data
+    if url:
+        kw["url"] = url
+    btn = InlineKeyboardButton(**kw)
+    if emoji_id:
+        try:
+            btn.icon_custom_emoji_id = emoji_id
+        except Exception:
+            pass
+    return btn
 
 
 def rbtn(text, style=None, emoji_id=None):
-    b = {"text": text}
-    if style:    b["style"] = style
-    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
-    return b
+    """
+    ReplyKeyboard tugmasi.
+    KeyboardButton da icon_custom_emoji_id yo'q —
+    emoji faqat matn ichida bo'ladi (style ham qo'llanilmaydi).
+    """
+    return KeyboardButton(text=text)
 
 
 def ikb(rows):
-    return {"inline_keyboard": rows}
+    """InlineKeyboardMarkup qaytaradi."""
+    return InlineKeyboardMarkup(rows)
 
 
 def rkb(rows, resize=True):
-    return {"keyboard": rows, "resize_keyboard": resize}
+    """ReplyKeyboardMarkup qaytaradi."""
+    return ReplyKeyboardMarkup(rows, resize_keyboard=resize)
 
 # ══════════════════════════════════════════════════════════
 # KLAVIATURALAR
