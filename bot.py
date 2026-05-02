@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v9
+Kino Bot - v10
 TUZATISHLAR (v9):
 1. Majburiy kanal to'liq ishlaydi:
    - Kanal qo'shish (format tekshiriladi)
@@ -1268,8 +1268,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         return
 
-    # ── 4. Kanal boshqarish submenu (YANGI) ──
+    # ── 4. Kanal boshqarish submenu ──
     if uid == ADMIN_ID and context.user_data.get("channel_manage_menu"):
+        # Agar kanal qo'shish jarayonida bo'lsa — admin_state_handler ga yuboramiz
+        ch_states = ("add_channel_username", "add_channel_title", "add_channel_url", "add_channel")
+        if context.user_data.get("admin_state") in ch_states:
+            handled = await admin_state_handler(update, context, text)
+            if handled:
+                return
+
         if text == "⬅️ Admin panel":
             context.user_data.pop("channel_manage_menu", None)
             context.user_data.pop("admin_state", None)
@@ -1277,13 +1284,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if text == "➕ Kanal qo'shish":
-            context.user_data["admin_state"] = "add_channel"
+            context.user_data["admin_state"] = "add_channel_username"
             await sm(context.bot, uid,
-                "➕ <b>Kanal qo'shish</b>\n\n"
-                "Quyidagi formatda yuboring:\n"
-                "<code>@username | Kanal nomi | https://t.me/username</code>\n\n"
-                "Misol:\n"
-                "<code>@mykinochannel | Mening kanal | https://t.me/mykinochannel</code>")
+                "➕ <b>Kanal qo'shish</b> (1/3)\n\n"
+                "Kanal <b>username</b>ini kiriting:\n"
+                "<i>(Misol: @mykinochannel)</i>")
             return
 
         if text == "🗑 Kanal o'chirish":
@@ -1778,43 +1783,106 @@ async def admin_state_handler(update, context, text):
     # ══════════════════════════════════════════════════
     # TUZATISH: add_channel — to'g'ri format tekshiruvi
     # ══════════════════════════════════════════════════
+    if state == "add_channel_username":
+        # Username qabul qilish
+        uname = text.strip()
+        if not uname.startswith("@"):
+            uname = "@" + uname
+        # Faqat username qolsin (link bo'lsa ham)
+        uname = uname.split("/")[-1]
+        if not uname.startswith("@"):
+            uname = "@" + uname
+
+        # Dublikat tekshiruvi
+        existing = DB.get("channels", [])
+        for ch in existing:
+            if ch["username"].lower() == uname.lower():
+                context.user_data.pop("admin_state", None)
+                context.user_data["channel_manage_menu"] = True
+                await sm(context.bot, uid,
+                    f"⚠️ <b>{uname}</b> allaqachon qo'shilgan!\n\n"
+                    f"{_channels_list_text()}",
+                    channel_manage_kb())
+                return True
+
+        context.user_data["ch_username"] = uname
+        context.user_data["admin_state"] = "add_channel_title"
+        await sm(context.bot, uid,
+            f"✅ Username: <b>{uname}</b>\n\nEndi kanal <b>nomini</b> kiriting:\n"
+            f"<i>(Misol: DramlarUz Kanali)</i>")
+        return True
+
+    if state == "add_channel_title":
+        title = text.strip()
+        if not title:
+            await sm(context.bot, uid, "❌ Nom bo'sh bo'lmasin. Qayta kiriting:")
+            return True
+        context.user_data["ch_title"] = title
+        context.user_data["admin_state"] = "add_channel_url"
+        uname = context.user_data.get("ch_username", "")
+        await sm(context.bot, uid,
+            f"✅ Nom: <b>{title}</b>\n\nEndi kanal <b>linkini</b> kiriting:\n"
+            f"<i>(Misol: https://t.me/mykinochannel)</i>")
+        return True
+
+    if state == "add_channel_url":
+        url = text.strip()
+        # link preview kelsa entities dan olishga harakat
+        if not url.startswith("http") and update.message.entities:
+            for ent in update.message.entities:
+                if ent.type in ("url", "text_link"):
+                    url = getattr(ent, "url", url) or url
+                    break
+        if not url.startswith("http"):
+            url = "https://t.me/" + url.lstrip("@")
+
+        uname = context.user_data.pop("ch_username", "")
+        title = context.user_data.pop("ch_title", "")
+        context.user_data.pop("admin_state", None)
+        context.user_data["channel_manage_menu"] = True
+
+        DB["channels"].append({"username": uname, "title": title, "url": url})
+        save()
+        await sm(context.bot, uid,
+            f"✅ Kanal qo'shildi!\n\n"
+            f"📛 Nom: <b>{title}</b>\n"
+            f"👤 Username: <b>{uname}</b>\n"
+            f"🔗 Link: {url}\n\n"
+            f"{_channels_list_text()}",
+            channel_manage_kb())
+        return True
+
     if state == "add_channel":
+        # Eski format qo'llab-quvvatlash (fallback)
         try:
             parts = [p.strip() for p in text.split("|")]
             if len(parts) < 3:
                 raise ValueError("Format xato")
             uname, title, url = parts[0], parts[1], parts[2]
-
-            # @ belgisi tekshiruvi
             if not uname.startswith("@"):
                 uname = "@" + uname
-
-            # Dublikat tekshiruvi
             existing = DB.get("channels", [])
             for ch in existing:
                 if ch["username"].lower() == uname.lower():
+                    context.user_data.pop("admin_state", None)
+                    context.user_data["channel_manage_menu"] = True
                     await sm(context.bot, uid,
                         f"⚠️ <b>{uname}</b> allaqachon qo'shilgan!\n\n"
                         f"{_channels_list_text()}",
                         channel_manage_kb())
-                    context.user_data.pop("admin_state", None)
                     return True
-
             DB["channels"].append({"username": uname, "title": title, "url": url})
             save()
+            context.user_data.pop("admin_state", None)
+            context.user_data["channel_manage_menu"] = True
             await sm(context.bot, uid,
                 f"✅ Kanal qo'shildi: <b>{title}</b> ({uname})\n\n"
                 f"{_channels_list_text()}",
                 channel_manage_kb())
         except Exception:
             await sm(context.bot, uid,
-                "❌ Format xato! Quyidagi ko'rinishda yuboring:\n\n"
-                "<code>@username | Kanal nomi | https://t.me/username</code>\n\n"
-                "Misol:\n"
-                "<code>@mykinochannel | Mening kanal | https://t.me/mykinochannel</code>")
-            # state saqlanib qoladi, qayta urinish imkoni
+                "❌ Xatolik. Qayta urinib ko'ring.")
             return True
-        context.user_data.pop("admin_state", None)
         return True
 
     if state == "post_channel_code":
