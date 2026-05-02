@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v7
-TUZATISHLAR:
-1. Pullik qism: kino kodi kiritilganda mavjud qismlar ro'yxati ko'rsatiladi
-2. set_price_ep da noto'g'ri kod kiritilganda xato xabari + qayta so'rash
-3. set_price_amount da validatsiya yaxshilandi
-AVVALGI (v6):
+Kino Bot - v8
+TUZATISHLAR (v8):
+1. Pullik qilish to'liq ishlaydi - set_price_code, set_price_ep, set_price_amount
+2. quick_price callback ham to'g'ri ishlaydi
+3. Qismlar ro'yxati narx belgilashda ko'rsatiladi
+AVVALGI (v7):
 4. Qismlar sahifalar bo'yicha ko'rsatiladi (5 tadan)
 5. Matnli broadcast ishlaydi
 6. EMOJI_IDS DB'ga saqlanadi
@@ -553,6 +553,24 @@ def clear_admin_state(context):
         context.user_data.pop(key, None)
 
 # ══════════════════════════════════════════════════════════
+# YORDAMCHI: qismlar ro'yxatini chiqarish
+# ══════════════════════════════════════════════════════════
+
+def _build_ep_price_list(code: str, eps: list, prices: dict) -> str:
+    """Qismlar va ularning narxlari ro'yxatini matn ko'rinishida qaytaradi."""
+    if not eps:
+        return "⚠️ Bu kinoda hali qism yo'q."
+    lines = []
+    for i, _ in enumerate(eps):
+        ek = str(i + 1)
+        price = prices.get(ek)
+        if price:
+            lines.append(f"  {ek}-qism — 💰 <b>{price} so'm</b>")
+        else:
+            lines.append(f"  {ek}-qism — bepul")
+    return f"📺 Qismlar ({len(eps)} ta):\n" + "\n".join(lines)
+
+# ══════════════════════════════════════════════════════════
 # BROADCAST
 # ══════════════════════════════════════════════════════════
 
@@ -772,6 +790,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.answer("Ruxsat yo'q", show_alert=True)
 
     elif data.startswith("quick_price|"):
+        # ══════════════════════════════════════════════════
+        # TUZATISH: quick_price - to'liq narx belgilash jarayonini boshlaydi
+        # ══════════════════════════════════════════════════
         if uid == ADMIN_ID:
             code = data.split("|")[1]
             movie = DB["movies"].get(code)
@@ -779,38 +800,30 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await q.answer("Kino topilmadi!", show_alert=True)
                 return
             eps = movie.get("episodes", [])
+            if not eps:
+                await q.answer()
+                await sm(context.bot, uid,
+                    f"⚠️ <b>{movie.get('title', code)}</b> kinoda hali qism yo'q.\n\n"
+                    f"Avval qism qo'shing, so'ng narx belgilang.")
+                return
             prices = movie.get("prices", {})
-            # ── TUZATISH: qismlar ro'yxatini ko'rsatish ──
             ep_list = _build_ep_price_list(code, eps, prices)
-            context.user_data["admin_state"] = "set_price_ep"
+            # Muhim: price_movie_code ni saqlash
             context.user_data["price_movie_code"] = code
+            context.user_data["admin_state"] = "set_price_ep"
             await q.answer()
             await context.bot.send_chat_action(uid, action="typing")
             await sm(context.bot, uid,
-                f"💰 <b>{movie.get('title', code)}</b> — narx belgilash\n\n"
+                f"💰 <b>{movie.get('title', code)}</b> — narx belgilash\n"
+                f"Kod: <code>{code}</code>\n\n"
                 f"{ep_list}\n\n"
                 f"Qaysi qismni pullik qilmoqchisiz?\n"
-                f"Qism <b>raqamini</b> kiriting:")
+                f"Qism <b>raqamini</b> kiriting (1 dan {len(eps)} gacha):")
         else:
             await q.answer("Ruxsat yo'q", show_alert=True)
 
     else:
         await q.answer()
-
-
-def _build_ep_price_list(code: str, eps: list, prices: dict) -> str:
-    """Qismlar va ularning narxlari ro'yxatini matn ko'rinishida qaytaradi."""
-    if not eps:
-        return "⚠️ Bu kinoda hali qism yo'q."
-    lines = []
-    for i, _ in enumerate(eps):
-        ek = str(i + 1)
-        price = prices.get(ek)
-        if price:
-            lines.append(f"  {ek}-qism — 💰 <b>{price} so'm</b>")
-        else:
-            lines.append(f"  {ek}-qism — bepul")
-    return f"📺 Qismlar ({len(eps)} ta):\n" + "\n".join(lines)
 
 
 async def cb_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1198,7 +1211,16 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, f"❌ Xato: {e}")
         return
 
-    # ── 5. Admin tugmalarini aniqlash ──
+    # ── 5. Admin holat handler (MUHIM: tugmalardan OLDIN tekshiramiz) ──
+    # set_price_* state'lari admin tugmalari bilan to'qnashmasligi uchun
+    if uid == ADMIN_ID:
+        state = context.user_data.get("admin_state")
+        if state in ("set_price_code", "set_price_ep", "set_price_amount"):
+            handled = await admin_state_handler(update, context, text)
+            if handled:
+                return
+
+    # ── 6. Admin tugmalarini aniqlash ──
     all_admin_btns = {bt(k) for k in [
         "kino_joy", "qism_qosh", "pullik", "stat",
         "kanal_post", "maj_kanal", "karta", "ilova",
@@ -1242,13 +1264,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_buttons(update, context, text)
         return
 
-    # ── 6. Admin holat handler ──
+    # ── 7. Admin holat handler (boshqa state'lar) ──
     if uid == ADMIN_ID:
         handled = await admin_state_handler(update, context, text)
         if handled:
             return
 
-    # ── 7. Foydalanuvchi tugmalari ──
+    # ── 8. Foydalanuvchi tugmalari ──
     if text == bt("yordam"):
         await context.bot.send_chat_action(uid, action="typing")
         await sm(context.bot, uid,
@@ -1276,7 +1298,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML")
         return
 
-    # ── 8. Yordam so'rovi ──
+    # ── 9. Yordam so'rovi ──
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         cap = (f"<b>Yordam so'rovi</b>\n{user.full_name} (@{user.username or '-'})\n"
@@ -1285,12 +1307,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Xabaringiz adminga yuborildi!")
         return
 
-    # ── 9. To'lov cheki ──
+    # ── 10. To'lov cheki ──
     if context.user_data.get("awaiting_check"):
         await sm(context.bot, uid, "Iltimos, chek <b>rasmini</b> yuboring.")
         return
 
-    # ── 10. Kino kodi ──
+    # ── 11. Kino kodi ──
     code = text.upper().strip()
     if code in DB["movies"]:
         ns = await check_subscription(uid, context.bot)
@@ -1348,7 +1370,14 @@ async def admin_buttons(update, context, text):
         return
 
     if text == bt("pullik"):
+        # ══════════════════════════════════════════════════
+        # TUZATISH: pullik tugmasi - faqat state o'rnatamiz
+        # price_movie_code set_price_code state'da saqlanadi
+        # ══════════════════════════════════════════════════
         context.user_data["admin_state"] = "set_price_code"
+        # Oldingi price ma'lumotlarini tozalaymiz
+        context.user_data.pop("price_movie_code", None)
+        context.user_data.pop("price_ep", None)
         await sm(context.bot, uid,
             "💰 <b>Qismni pullik qilish</b>\n\n"
             "Kino <b>kodini</b> kiriting:")
@@ -1532,96 +1561,129 @@ async def admin_state_handler(update, context, text):
         return True
 
     # ══════════════════════════════════════════════════════
-    # ── TUZATISH: set_price_code — qismlar ro'yxatini ko'rsatish ──
+    # TUZATISH: set_price_code - kino kodi qabul qilish
     # ══════════════════════════════════════════════════════
     if state == "set_price_code":
         code = text.upper().strip()
         if code not in DB["movies"]:
             await sm(context.bot, uid,
                 f"❌ <code>{code}</code> kodli kino topilmadi.\n\n"
-                f"Qayta kiriting yoki /start bosing:")
-            return True  # ← state o'zgartirilmaydi, qayta kiritish imkoni
+                f"Qayta kino kodini kiriting:")
+            return True  # state o'zgartirilmaydi, qayta kiritish imkoni
+
         movie = DB["movies"][code]
         eps = movie.get("episodes", [])
         prices = movie.get("prices", {})
+
         if not eps:
             await sm(context.bot, uid,
                 f"⚠️ <b>{movie.get('title', code)}</b> kinoda hali qism yo'q.\n\n"
                 f"Avval qism qo'shing, so'ng narx belgilang.")
             context.user_data.pop("admin_state", None)
             return True
+
         ep_list = _build_ep_price_list(code, eps, prices)
+        # MUHIM: price_movie_code ni shu yerda saqlaymiz
         context.user_data["price_movie_code"] = code
         context.user_data["admin_state"] = "set_price_ep"
+
         await sm(context.bot, uid,
             f"💰 <b>{movie.get('title', code)}</b> — narx belgilash\n"
             f"Kod: <code>{code}</code>\n\n"
             f"{ep_list}\n\n"
             f"Qaysi qismni pullik qilmoqchisiz?\n"
-            f"Qism <b>raqamini</b> kiriting:")
+            f"Qism <b>raqamini</b> kiriting (1 dan {len(eps)} gacha):")
         return True
 
+    # ══════════════════════════════════════════════════════
+    # TUZATISH: set_price_ep - qism raqamini qabul qilish
+    # ══════════════════════════════════════════════════════
     if state == "set_price_ep":
         code = context.user_data.get("price_movie_code")
+
+        # Kino kodi yo'q yoki DB da mavjud emas
         if not code or code not in DB["movies"]:
-            await sm(context.bot, uid, "❌ Xatolik. /start bosing.")
-            context.user_data.pop("admin_state", None)
+            await sm(context.bot, uid,
+                "❌ Xatolik yuz berdi. Qaytadan kino kodini kiriting:")
+            context.user_data["admin_state"] = "set_price_code"
             context.user_data.pop("price_movie_code", None)
+            context.user_data.pop("price_ep", None)
             return True
+
         movie = DB["movies"][code]
         eps = movie.get("episodes", [])
-        # ── TUZATISH: raqam validatsiyasi ──
+
+        # Faqat raqam qabul qilamiz
         if not text.strip().isdigit():
             await sm(context.bot, uid,
                 "❌ Faqat <b>raqam</b> kiriting (masalan: <code>3</code>):")
             return True
+
         ep_num = int(text.strip())
         if ep_num < 1 or ep_num > len(eps):
             await sm(context.bot, uid,
                 f"❌ <b>{ep_num}</b>-qism mavjud emas.\n"
                 f"1 dan {len(eps)} gacha raqam kiriting:")
             return True
+
+        # Qism raqamini saqlaymiz
         context.user_data["price_ep"] = str(ep_num)
         context.user_data["admin_state"] = "set_price_amount"
+
         cur_price = movie.get("prices", {}).get(str(ep_num))
         cur_info = f"\nHozirgi narx: <b>{cur_price} so'm</b>" if cur_price else "\nHozir: <b>bepul</b>"
+
         await sm(context.bot, uid,
+            f"💰 <b>{movie.get('title', code)}</b>\n"
             f"<b>{ep_num}-qism</b> narxi{cur_info}\n\n"
             f"Yangi narxni kiriting (so'mda):\n"
             f"<i>Bepul qilish uchun <code>0</code> kiriting</i>")
         return True
 
+    # ══════════════════════════════════════════════════════
+    # TUZATISH: set_price_amount - narxni saqlash
+    # ══════════════════════════════════════════════════════
     if state == "set_price_amount":
         code = context.user_data.get("price_movie_code")
         ep = context.user_data.get("price_ep")
-        if not code or not ep:
+
+        if not code or not ep or code not in DB["movies"]:
             await sm(context.bot, uid, "❌ Xatolik. /start bosing.")
             context.user_data.pop("admin_state", None)
-            return True
-        # ── TUZATISH: 0 kiritilsa narx o'chiriladi ──
-        if text.strip() == "0":
-            DB["movies"][code].get("prices", {}).pop(ep, None)
-            save()
-            context.user_data.pop("admin_state")
             context.user_data.pop("price_movie_code", None)
             context.user_data.pop("price_ep", None)
-            movie_title = DB["movies"][code].get("title", code)
-            await sm(context.bot, uid,
-                f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> endi <b>bepul</b>!",
-                admin_menu_kb())
-        elif not text.strip().isdigit():
+            return True
+
+        movie = DB["movies"][code]
+        movie_title = movie.get("title", code)
+
+        # Faqat raqam yoki 0 qabul qilamiz
+        if not text.strip().isdigit():
             await sm(context.bot, uid,
                 "❌ Faqat <b>raqam</b> kiriting (so'mda).\n"
                 "<i>Bepul qilish uchun <code>0</code> kiriting</i>")
-        else:
-            DB["movies"][code].setdefault("prices", {})[ep] = text.strip()
+            return True
+
+        amount = text.strip()
+
+        # Holatni tozalash
+        context.user_data.pop("admin_state", None)
+        context.user_data.pop("price_movie_code", None)
+        context.user_data.pop("price_ep", None)
+
+        if amount == "0":
+            # Narxni o'chirish (bepul qilish)
+            DB["movies"][code].setdefault("prices", {}).pop(ep, None)
             save()
-            context.user_data.pop("admin_state")
-            context.user_data.pop("price_movie_code", None)
-            context.user_data.pop("price_ep", None)
-            movie_title = DB["movies"][code].get("title", code)
             await sm(context.bot, uid,
-                f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> narxi: <b>{text.strip()} so'm</b>",
+                f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> endi <b>bepul</b>!",
+                admin_menu_kb())
+        else:
+            # Narx belgilash
+            DB["movies"][code].setdefault("prices", {})[ep] = amount
+            save()
+            await sm(context.bot, uid,
+                f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> narxi: <b>{amount} so'm</b>",
                 admin_menu_kb())
         return True
 
@@ -1848,7 +1910,7 @@ def main():
     app.add_handler(MessageHandler(filters.Sticker.ALL, sticker_handler))
     app.add_handler(MessageHandler(
         filters.PHOTO | filters.VIDEO | filters.Document.ALL, media_handler))
-    logger.info("Bot ishga tushdi! v7")
+    logger.info("Bot ishga tushdi! v8")
     app.run_polling(drop_pending_updates=True)
 
 
