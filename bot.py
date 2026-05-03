@@ -22,7 +22,7 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes, filters,
 )
 
-BOT_TOKEN       = "8723400610:AAHgNzcIGvyIWfJZBAwCAyT_0X41Utr9prY"
+BOT_TOKEN       = "8723400610:AAFA6_Ns01_o1POHp7rPsCEbjsMCintW8EE"
 ADMIN_ID        = 8537782289
 # JSONBlob — bepul, ro'yxatdan o'tishsiz onlayn JSON saqlash xizmati
 JSONBLOB_ID  = "019decdf-095c-75aa-adb4-6489cba1f4fb"
