@@ -22,7 +22,7 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes, filters,
 )
 
-BOT_TOKEN       = "8723400610:AAGID66k5tFnpZZtpZRaSL3h9czRNCkLE1I"
+BOT_TOKEN       = "8723400610:AAHgNzcIGvyIWfJZBAwCAyT_0X41Utr9prY"
 ADMIN_ID        = 8537782289
 GIST_TOKEN    = "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"
 GIST_ID       = "50f61ab4f6ac4d70ba44e2e300102ff7"
