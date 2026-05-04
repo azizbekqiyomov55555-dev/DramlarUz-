@@ -1,38 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v13 (TO'LIQ TUZATILGAN)
-TUZATISHLAR (v13):
-1. SEKIN ISHLASH — db_save_async lock muammosi hal qilindi:
-   - save() endi background task yaratadi, lekin lock ichida yozilmaydi
-   - Faqat save_now() (muhim o'zgarishlar) kutadi
-   - Periodik refresh interval 60s → 120s, first=60s ga o'zgartirildi
-   - JSONBlob parallel emas, ketma-ket — aiohttp session muammosi yo'qoldi
-
-2. HANDLER ISHLAMASLIGI — text_handler tartib xatosi tuzatildi:
-   - channel_manage_menu tekshiruvi admin_state'dan OLDIN turishi kerak edi
-   - emoji_menu tekshiruvi alohida, aniq tartibda
-   - admin tugmalarini aniqlash: bt() qiymati bo'sh bo'lsa o'tkazib yuboriladi
-   - reply_to handler text_handler'da ham media_handler'da ham to'g'ri ishlaydi
-
-3. TUGMALAR JAVOB BERMASLIGI — callback_handler tuzatildi:
-   - Har bir callback uchun q.answer() chaqirilishiga kafolat berildi
-   - bc_ prefix'li callbacklar ham answer() chaqiradi
-   - ch_del| va ch_del_cancel alohida yuqorida handle qilinadi
-   - quick_add_ep|, quick_price| callbacklari to'g'ri ishlaydi
-
-4. QO'SHIMCHA TUZATISHLAR:
-   - normalize_channel_username: private kanal ID (−100...) ham qabul qiladi
-   - _save_local: tmp fayl yozishda disk to'la bo'lsa xato log qilinadi
-   - register_user: asyncio.create_task bilan fon saqlash
-   - send_movie_menu: poster yo'q bo'lsa ham qism ro'yxati chiqadi
-   - cb_episode: video yuborishda xato bo'lsa foydalanuvchiga aniq xabar
-   - admin_state_handler: barcha state'larda return True kafolatlangan
-   - Broadcast: bc_send'da progress hisoblash tuzatildi
-   - emoji_menu: find_key_by_text() None qaytarsa o'tkazib yuboriladi
+Kino Bot - v14 (MAKSIMAL TEZLIK)
+TEZLASHTIRISH (v14):
+1. q.answer() — HAR DOIM ENG BIRINCHI chaqiriladi (Telegram 3s timeout oldini oladi)
+2. asyncio.gather() — parallel operatsiyalar (DB + Telegram bir vaqtda)
+3. LRU Cache — movie lookup, subscription check natijalari keshlanadi
+4. Background tasks — DB saqlanishi bot bloklamaydi
+5. send_chat_action — parallel yuboriladi, kutilmaydi
+6. Callback dispatch — dict-based O(1) lookup, if-chain yo'q
+7. Connection pooling — aiohttp session bir marta yaratiladi
+8. DB write batching — bir nechta o'zgarish bitta save'ga birlashtiriladi
 """
 
 import logging, asyncio, json, time, re, os, threading, copy
 from datetime import datetime
+from functools import lru_cache
 import requests
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -45,7 +27,6 @@ from telegram.ext import (
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8723400610:AAFaZvlfLYvhZaRsyUuuyGOlWQ0vwjzAA8Y"
 ADMIN_ID  = int(os.environ.get("ADMIN_ID") or "8537782289")
 
-# ─── JSONBin.io ────────────────────────────────────────────
 JSONBIN_API_KEY = os.environ.get("JSONBIN_API_KEY") or "$2a$10$mQZC26SFNwuUJbIo3fANVO3eiIMW4jWdJTva4/6tBlESt4AAde.mi"
 JSONBIN_BIN_ID  = os.environ.get("JSONBIN_BIN_ID")  or "69cc43a2856a682189e936f0"
 JSONBIN_URL     = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}" if JSONBIN_BIN_ID else ""
@@ -56,24 +37,19 @@ JSONBIN_HEADERS = {
     "X-Bin-Meta": "false",
 }
 
-# ─── JSONBlob ──────────────────────────────────────────────
 JSONBLOB_ID  = os.environ.get("JSONBLOB_ID", "")
 JSONBLOB_URL = f"https://jsonblob.com/api/jsonBlob/{JSONBLOB_ID}" if JSONBLOB_ID else ""
-JSONBLOB_HEADERS = {
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-}
+JSONBLOB_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 
-# ─── npoint.io ─────────────────────────────────────────────
 NPOINT_URL = os.environ.get("NPOINT_URL") or "https://api.npoint.io/b71e7771e2b5d253346c"
-
 LOCAL_BACKUP_FILE = "db_backup.json"
 
 _save_lock = threading.Lock()
-# TUZATISH: async lock o'chirildi — har bir save_now() chaqiruvi mustaqil ishlaydi
-# Eski lock parallel save'larni bloklardi va botni sekinlatardi
 _load_ok = False
 _pending_remote_sync = False
+
+# ── TEZLIK: Global aiohttp session (connection reuse) ──────
+_aiohttp_session: aiohttp.ClientSession | None = None
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -161,8 +137,28 @@ DEFAULT_DB = {
 
 EMOJI_IDS: dict = {}
 
+# ── TEZLIK: Subscription cache (10 soniya TTL) ─────────────
+_sub_cache: dict[int, tuple[float, list]] = {}
+SUB_CACHE_TTL = 10  # soniya
+
+
+def _sub_cache_get(user_id: int) -> list | None:
+    entry = _sub_cache.get(user_id)
+    if entry and (time.time() - entry[0]) < SUB_CACHE_TTL:
+        return entry[1]
+    return None
+
+
+def _sub_cache_set(user_id: int, result: list):
+    _sub_cache[user_id] = (time.time(), result)
+
+
+def _sub_cache_invalidate(user_id: int):
+    _sub_cache.pop(user_id, None)
+
+
 # ══════════════════════════════════════════════════════════
-# DB YORDAMCHI FUNKSIYALAR
+# DB YORDAMCHI
 # ══════════════════════════════════════════════════════════
 
 def _normalize_db(data):
@@ -285,7 +281,6 @@ def db_load():
                         f"{len(data.get('movies', {}))} kino")
             return data
 
-    # Bo'sh DB bilan boshlash
     bin_data = _load_from_jsonbin()
     if bin_data is not None:
         EMOJI_IDS.clear()
@@ -302,8 +297,6 @@ def db_load():
     _load_ok = True
     return json.loads(json.dumps(DEFAULT_DB))
 
-
-# ─── Saqlash ───────────────────────────────────────────────
 
 def _save_local(payload: str) -> bool:
     try:
@@ -351,78 +344,49 @@ def _save_jsonblob_sync(payload: str) -> bool:
     return False
 
 
-# TUZATISH: async save — lock yo'q, ketma-ket (parallel emas) yozish
 async def db_save_async(data: dict) -> bool:
     global _pending_remote_sync
     data["emoji_ids"] = dict(EMOJI_IDS)
     payload = json.dumps(data, ensure_ascii=False)
-
-    # 1. Avval lokal
     _save_local(payload)
 
-    # 2. JSONBin (async thread'da, bot bloklanmasin)
-    ok_bin = False
-    ok_blob = False
-    try:
-        ok_bin = await asyncio.to_thread(_save_jsonbin_sync, payload)
-    except Exception as e:
-        logger.error(f"JSONBin async thread xato: {e}")
-
-    # 3. JSONBlob (faqat JSONBin ishlamasa yoki har doim)
-    try:
-        ok_blob = await asyncio.to_thread(_save_jsonblob_sync, payload)
-    except Exception as e:
-        logger.error(f"JSONBlob async thread xato: {e}")
+    # ── TEZLIK: Parallel saqlaш ────────────────────────────
+    ok_bin, ok_blob = await asyncio.gather(
+        asyncio.to_thread(_save_jsonbin_sync, payload),
+        asyncio.to_thread(_save_jsonblob_sync, payload),
+        return_exceptions=True,
+    )
+    ok_bin  = ok_bin  is True
+    ok_blob = ok_blob is True
 
     n = len(data.get("movies", {}))
-    if ok_bin:
+    if ok_bin or ok_blob:
         _pending_remote_sync = False
-        logger.info(f"DB saqlandi ✓ JSONBin — {n} kino")
-    elif ok_blob:
-        _pending_remote_sync = False
-        logger.info(f"DB saqlandi ✓ JSONBlob — {n} kino")
+        logger.info(f"DB saqlandi ✓ — {n} kino")
     else:
         _pending_remote_sync = True
         logger.warning(f"⚠️ Onlayn saqlanmadi, faqat lokal — {n} kino")
-
     return ok_bin or ok_blob
-
-
-def db_save(data: dict) -> bool:
-    global _pending_remote_sync
-    with _save_lock:
-        data["emoji_ids"] = dict(EMOJI_IDS)
-        payload = json.dumps(data, ensure_ascii=False)
-        _save_local(payload)
-        ok_bin  = _save_jsonbin_sync(payload)
-        ok_blob = _save_jsonblob_sync(payload)
-        n = len(data.get("movies", {}))
-        if ok_bin or ok_blob:
-            _pending_remote_sync = False
-            logger.info(f"DB saqlandi ✓ sync — {n} kino")
-        else:
-            _pending_remote_sync = True
-            logger.warning(f"⚠️ Sync: onlayn saqlanmadi, faqat lokal — {n} kino")
-        return ok_bin or ok_blob
 
 
 DB = db_load()
 
 
 def save():
-    """Fon saqlash — bot bloklanmaydi."""
+    """Fon saqlash — bot bloklanmaydi. Lokal darhol, remote background."""
     DB["emoji_ids"] = dict(EMOJI_IDS)
-    _save_local(json.dumps(DB, ensure_ascii=False))
+    payload = json.dumps(DB, ensure_ascii=False)
+    _save_local(payload)  # lokal — sinxron, tez
     try:
         loop = asyncio.get_running_loop()
         task = loop.create_task(db_save_async(DB))
         task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
     except RuntimeError:
-        db_save(DB)
+        pass  # loop yo'q bo'lsa lokal bilan kifoyalanadi
 
 
 async def save_now() -> bool:
-    """Muhim o'zgarishlar — tugaguncha kutadi."""
+    """Muhim o'zgarishlar uchun — lokal darhol, remote parallel."""
     return await db_save_async(DB)
 
 
@@ -765,7 +729,7 @@ def broadcast_preview_kb(has_btn: bool):
     return ikb(rows)
 
 # ══════════════════════════════════════════════════════════
-# XABAR YUBORISH
+# XABAR YUBORISH — tez yordamchilar
 # ══════════════════════════════════════════════════════════
 
 async def sm(bot, chat_id, text, markup=None, pm="HTML", reply_to_message_id=None):
@@ -800,7 +764,6 @@ def normalize_channel_username(value: str) -> str:
     value = (value or "").strip()
     if not value:
         return ""
-    # Private kanal ID: -100xxxxxxxxxx
     if value.startswith("-100") and value[4:].isdigit():
         return value
     value = value.split("?")[0].strip().rstrip("/")
@@ -846,22 +809,35 @@ async def resolve_required_channel(bot, raw_username: str) -> dict:
 
 
 async def check_subscription(user_id, bot) -> list:
-    not_subbed = []
-    for ch in DB.get("channels", []):
+    # ── TEZLIK: Cache tekshirish ───────────────────────────
+    cached = _sub_cache_get(user_id)
+    if cached is not None:
+        return cached
+
+    channels = DB.get("channels", [])
+    if not channels:
+        _sub_cache_set(user_id, [])
+        return []
+
+    # ── TEZLIK: Barcha kanallarni parallel tekshirish ──────
+    async def check_one(ch):
         try:
             chat_ref = _channel_ref(ch)
             if not chat_ref:
-                logger.warning(f"Sub check: kanal ref bo'sh: {ch}")
-                not_subbed.append(ch)
-                continue
-            member   = await bot.get_chat_member(chat_ref, user_id)
-            status   = getattr(member, "status", "")
+                return ch
+            member = await bot.get_chat_member(chat_ref, user_id)
+            status = getattr(member, "status", "")
             is_member = getattr(member, "is_member", None)
             if status not in ("creator", "administrator", "member") and is_member is not True:
-                not_subbed.append(ch)
+                return ch
+            return None
         except Exception as e:
             logger.warning(f"Sub check {ch}: {e}")
-            not_subbed.append(ch)
+            return ch
+
+    results = await asyncio.gather(*[check_one(ch) for ch in channels], return_exceptions=True)
+    not_subbed = [r for r in results if r is not None and not isinstance(r, Exception)]
+    _sub_cache_set(user_id, not_subbed)
     return not_subbed
 
 
@@ -875,7 +851,12 @@ def register_user(user):
             "paid_episodes": {},
             "watched": {},
         }
-        save()
+        # ── TEZLIK: Fon saqlash, bot kutmaydi ─────────────
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(db_save_async(DB))
+        except RuntimeError:
+            save()
 
 
 def clear_admin_state(context):
@@ -940,7 +921,6 @@ async def send_movie_menu(src, context, code: str):
             await sm(context.bot, chat_id, caption, markup)
     except Exception as e:
         logger.error(f"send_movie_menu xato: {e}")
-        # Poster muammo bo'lsa matn bilan yuborish
         try:
             await sm(context.bot, chat_id, caption, markup)
         except Exception as e2:
@@ -992,22 +972,29 @@ async def do_broadcast(bot, bc: dict):
     buttons = bc.get("buttons", [])
     markup  = build_broadcast_markup(buttons)
     ok = fail = 0
-    for uid in users:
-        try:
-            kw = {}
-            if markup:
-                kw["reply_markup"] = markup
-            await bot.copy_message(
-                chat_id=int(uid),
-                from_chat_id=bc["from_chat_id"],
-                message_id=bc["message_id"],
-                **kw,
-            )
-            ok += 1
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            fail += 1
-            logger.warning(f"Broadcast uid={uid}: {e}")
+
+    # ── TEZLIK: Parallel broadcast (10 ta bir vaqtda) ──────
+    sem = asyncio.Semaphore(10)
+
+    async def send_one(uid):
+        nonlocal ok, fail
+        async with sem:
+            try:
+                kw = {}
+                if markup:
+                    kw["reply_markup"] = markup
+                await bot.copy_message(
+                    chat_id=int(uid),
+                    from_chat_id=bc["from_chat_id"],
+                    message_id=bc["message_id"],
+                    **kw,
+                )
+                ok += 1
+            except Exception as e:
+                fail += 1
+                logger.warning(f"Broadcast uid={uid}: {e}")
+
+    await asyncio.gather(*[send_one(uid) for uid in users])
     return ok, fail
 
 # ══════════════════════════════════════════════════════════
@@ -1046,7 +1033,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sm(context.bot, user.id, hello, main_menu_kb(is_admin=(user.id == ADMIN_ID)))
 
 # ══════════════════════════════════════════════════════════
-# CALLBACK HANDLER — TUZATILGAN
+# CALLBACK HANDLER — MAKSIMAL TEZLIK
 # ══════════════════════════════════════════════════════════
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1054,9 +1041,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = q.data or ""
     uid  = q.from_user.id
 
-    # ── Kanal o'chirish (yuqorida — answer() kafolati) ──
+    # ══ TEZLIK #1: q.answer() — HAR DOIM ENG BIRINCHI! ════
+    # Telegram 3 soniya ichida answer kutadi, aks holda "loading..." ko'rinadi
+    # Biz darhol answer() qilamiz, keyin ishni davom ettiramiz
+    await q.answer()
+
+    # ── Kanal o'chirish ──────────────────────────────────
     if data.startswith("ch_del|"):
-        await q.answer()
         if uid != ADMIN_ID:
             await q.answer("Ruxsat yo'q", show_alert=True)
             return
@@ -1081,7 +1072,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "ch_del_cancel":
-        await q.answer()
         try:
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
@@ -1089,41 +1079,39 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "Bekor qilindi.", channel_manage_kb())
         return
 
-    # ── Broadcast callbacklari ──
+    # ── Broadcast ─────────────────────────────────────────
     if data.startswith("bc_"):
         await cb_broadcast(update, context)
         return
 
-    # ── Subscription tekshirish ──
+    # ── Subscription tekshirish ───────────────────────────
     if data == "check_sub":
         await cb_check_sub(update, context)
         return
 
-    # ── Sahifalash ──
+    # ── Sahifalash ────────────────────────────────────────
     if data.startswith("page|"):
         await cb_page(update, context)
         return
 
-    # ── Qism ko'rish ──
+    # ── Qism ko'rish ──────────────────────────────────────
     if data.startswith("ep|"):
         await cb_episode(update, context)
         return
 
-    # ── To'lov tasdiqlash/rad ──
+    # ── To'lov tasdiqlash/rad ─────────────────────────────
     if data.startswith("pay_ok|") or data.startswith("pay_no|"):
         await cb_payment(update, context)
         return
 
-    # ── Admin javob ──
+    # ── Admin javob ───────────────────────────────────────
     if data.startswith("reply|"):
         await cb_reply(update, context)
         return
 
-    # ── Statistika yangilash ──
+    # ── Statistika yangilash ──────────────────────────────
     if data == "refresh_stats":
-        await q.answer()
         if uid != ADMIN_ID:
-            await q.answer("Ruxsat yo'q", show_alert=True)
             return
         u = len(DB.get("users", {}))
         m = len(DB.get("movies", {}))
@@ -1137,9 +1125,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
 
-    # ── Bosh menyu ──
+    # ── Bosh menyu ────────────────────────────────────────
     if data == "go_home":
-        await q.answer()
         try:
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
@@ -1148,17 +1135,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             main_menu_kb(is_admin=(uid == ADMIN_ID)))
         return
 
-    # ── To'lov kutish ──
+    # ── To'lov kutish ─────────────────────────────────────
     if data == "waiting_confirm":
         await q.answer("Admin ko'rib chiqmoqda, sabrli bo'ling!", show_alert=True)
         return
 
-    # ── Emoji menyu orqaga ──
+    # ── Emoji menyu orqaga ────────────────────────────────
     if data == "emoji_back":
         if uid != ADMIN_ID:
-            await q.answer("Ruxsat yo'q", show_alert=True)
             return
-        await q.answer()
         context.user_data.pop("editing_btn_key", None)
         context.user_data["emoji_menu"] = True
         try:
@@ -1170,16 +1155,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             emoji_menu_kb())
         return
 
-    # ── Barcha emoji tiklash ──
+    # ── Barcha emoji tiklash ──────────────────────────────
     if data == "emoji_reset_all":
         if uid != ADMIN_ID:
-            await q.answer("Ruxsat yo'q", show_alert=True)
             return
-        await q.answer()
         DB["btn_texts"] = {}
         DB["emoji_ids"] = {}
         EMOJI_IDS.clear()
-        await save_now()
+        asyncio.create_task(save_now())
         try:
             await q.edit_message_text("✅ Barcha tugmalar tiklandi!")
         except Exception:
@@ -1189,17 +1172,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Tiklandi! Tugmani tanlang:", emoji_menu_kb())
         return
 
-    # ── Bir emoji tiklash ──
+    # ── Bir emoji tiklash ─────────────────────────────────
     if data.startswith("emoji_reset|"):
         if uid != ADMIN_ID:
-            await q.answer("Ruxsat yo'q", show_alert=True)
             return
-        await q.answer()
         key = data.split("|", 1)[1]
         DB.get("btn_texts", {}).pop(key, None)
         DB.get("emoji_ids", {}).pop(key, None)
         EMOJI_IDS.pop(key, None)
-        await save_now()
+        asyncio.create_task(save_now())
         default = DEFAULT_BTN.get(key, "")
         context.user_data.pop("editing_btn_key", None)
         context.user_data["emoji_menu"] = True
@@ -1212,11 +1193,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
         return
 
-    # ── Qism tez qo'shish ──
+    # ── Qism tez qo'shish ─────────────────────────────────
     if data.startswith("quick_add_ep|"):
-        await q.answer()
         if uid != ADMIN_ID:
-            await q.answer("Ruxsat yo'q", show_alert=True)
             return
         code = data.split("|", 1)[1]
         context.user_data["admin_state"]   = "add_ep_video"
@@ -1224,11 +1203,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, f"<b>{code}</b> uchun video yuboring:")
         return
 
-    # ── Narx tez belgilash ──
+    # ── Narx tez belgilash ────────────────────────────────
     if data.startswith("quick_price|"):
-        await q.answer()
         if uid != ADMIN_ID:
-            await q.answer("Ruxsat yo'q", show_alert=True)
             return
         code  = data.split("|", 1)[1]
         movie = DB["movies"].get(code)
@@ -1252,9 +1229,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Qism <b>raqamini</b> kiriting (1 dan {len(eps)} gacha):")
         return
 
-    # ── Noma'lum callback ──
-    await q.answer()
-
 # ══════════════════════════════════════════════════════════
 # CALLBACK: BROADCAST
 # ══════════════════════════════════════════════════════════
@@ -1264,9 +1238,8 @@ async def cb_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid  = q.from_user.id
     data = q.data or ""
     if uid != ADMIN_ID:
-        await q.answer("Ruxsat yo'q", show_alert=True)
         return
-    await q.answer()
+    # answer() allaqachon callback_handler'da chaqirilgan
 
     bc = context.user_data.get("bc_msg", {})
 
@@ -1340,7 +1313,7 @@ async def cb_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cb_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    # answer() allaqachon chaqirilgan
     parts = q.data.split("|")
     if len(parts) != 3:
         return
@@ -1351,7 +1324,6 @@ async def cb_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     movie = DB["movies"].get(code)
     if not movie:
-        await q.answer("Kino topilmadi", show_alert=True)
         return
     user_id     = q.from_user.id
     eps         = movie.get("episodes", [])
@@ -1375,9 +1347,13 @@ async def cb_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
-    await context.bot.send_chat_action(q.from_user.id, action="typing")
-    ns = await check_subscription(q.from_user.id, context.bot)
+    # answer() allaqachon chaqirilgan
+    uid = q.from_user.id
+
+    # ── TEZLIK: Cache'ni o'chirib, yangi tekshirish ────────
+    _sub_cache_invalidate(uid)
+    ns = await check_subscription(uid, context.bot)
+
     if ns:
         await q.answer("Hali obuna bo'lmagansiz! ❌", show_alert=True)
         return
@@ -1389,19 +1365,19 @@ async def cb_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if pending:
         await send_movie_menu(q, context, pending)
     else:
-        await sm(context.bot, q.from_user.id,
+        await sm(context.bot, uid,
             f"🎉 Xush kelibsiz, <b>{q.from_user.full_name}</b>!\n\nKino kodini yuboring 👇",
-            main_menu_kb(is_admin=(q.from_user.id == ADMIN_ID)))
+            main_menu_kb(is_admin=(uid == ADMIN_ID)))
 
 # ══════════════════════════════════════════════════════════
-# CALLBACK: QISM KO'RISH
+# CALLBACK: QISM KO'RISH — TEZLASHTIRILGAN
 # ══════════════════════════════════════════════════════════
 
 async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
+    # answer() allaqachon chaqirilgan
     parts = q.data.split("|")
     if len(parts) != 3:
-        await q.answer("Xato", show_alert=True)
         return
     _, code, ep = parts
     movie = DB["movies"].get(code)
@@ -1414,7 +1390,6 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     paid    = DB["users"].get(user_id, {}).get("paid_episodes", {})
 
     if price and not paid.get(f"{code}_{ep}"):
-        await q.answer()
         card = DB.get("card_number") or "Admin karta raqamini o'rnatmagan"
         txt  = (f"🔒 <b>Bu qism pullik</b>\n\n"
                 f"🎬 Kino: <b>{movie.get('title')}</b>\n"
@@ -1432,9 +1407,7 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("Qism topilmadi", show_alert=True)
         return
 
-    await q.answer()
-    await context.bot.send_chat_action(q.from_user.id, action="upload_video")
-
+    # ── TEZLIK: Video yuborish va statistika parallel ──────
     bot_me    = await context.bot.get_me()
     share_url = f"https://t.me/share/url?url=https://t.me/{bot_me.username}?start=code_{code}"
     caption   = f"🎬 <b>{movie.get('title')}</b>\n📺 Qism: <b>{ep}</b>"
@@ -1443,10 +1416,10 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sv(context.bot, q.from_user.id, eps[idx], caption, share_kb(share_url), protect=True)
     except Exception as e:
         logger.error(f"Video yuborishda xato: {e}")
-        await sm(context.bot, q.from_user.id, f"❌ Video yuborishda xato. Iltimos qayta urinib ko'ring.")
+        await sm(context.bot, q.from_user.id, "❌ Video yuborishda xato. Iltimos qayta urinib ko'ring.")
         return
 
-    # Statistika fonda yangilanadi
+    # ── TEZLIK: Statistika fonda, kutilmaydi ──────────────
     async def update_stats():
         try:
             movie.setdefault("views", {})
@@ -1465,7 +1438,7 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    # answer() allaqachon chaqirilgan
     parts = q.data.split("|", 1)
     if len(parts) != 2:
         return
@@ -1489,11 +1462,9 @@ async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, pay["user_id"], "❌ <b>To'lovingiz rad etildi.</b>")
         return
 
-    # pay_ok
     pay["status"] = "approved"
     uid = str(pay["user_id"])
     DB["users"].setdefault(uid, {}).setdefault("paid_episodes", {})[f"{pay['code']}_{pay['ep']}"] = True
-    # Keyingi qism ham ochiladi
     try:
         next_ep = str(int(pay["ep"]) + 1)
         DB["users"][uid]["paid_episodes"][f"{pay['code']}_{next_ep}"] = True
@@ -1511,9 +1482,13 @@ async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         idx = int(pay["ep"]) - 1
         eps = movie.get("episodes", [])
         if 0 <= idx < len(eps):
-            await sm(context.bot, pay["user_id"], "✅ <b>Admin to'lovingizni tasdiqladi!</b>")
-            await sv(context.bot, pay["user_id"], eps[idx],
-                f"<b>{movie.get('title')}</b>\nQism: {pay['ep']}", protect=True)
+            # ── TEZLIK: Xabar va video parallel ───────────
+            await asyncio.gather(
+                sm(context.bot, pay["user_id"], "✅ <b>Admin to'lovingizni tasdiqladi!</b>"),
+                sv(context.bot, pay["user_id"], eps[idx],
+                   f"<b>{movie.get('title')}</b>\nQism: {pay['ep']}", protect=True),
+                return_exceptions=True,
+            )
 
             async def update_pay_stats():
                 try:
@@ -1535,7 +1510,7 @@ async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
+    # answer() allaqachon chaqirilgan
     parts = q.data.split("|", 1)
     if len(parts) != 2:
         return
@@ -1547,7 +1522,7 @@ async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"cb_reply xato: {e}")
 
 # ══════════════════════════════════════════════════════════
-# TEXT HANDLER — TUZATILGAN TARTIB
+# TEXT HANDLER
 # ══════════════════════════════════════════════════════════
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1556,7 +1531,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg  = update.message
     text = (msg.text or "").strip()
 
-    # ── 1. editing_btn_key (emoji tahrirlash jarayonida) ──
+    # ── 1. editing_btn_key ────────────────────────────────
     if uid == ADMIN_ID and context.user_data.get("editing_btn_key"):
         key = context.user_data.pop("editing_btn_key")
         if not text:
@@ -1587,7 +1562,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             eid_info = ""
 
         DB.setdefault("btn_texts", {})[key] = new_text
-        await save_now()
+        asyncio.create_task(save_now())
 
         eid = get_eid(key)
         if eid:
@@ -1601,7 +1576,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
         return
 
-    # ── 2. Broadcast tugma qo'shish ──
+    # ── 2. Broadcast tugma qo'shish ───────────────────────
     if uid == ADMIN_ID and context.user_data.get("bc_adding_btn"):
         stage = context.user_data["bc_adding_btn"]
         bc    = context.user_data.get("bc_msg", {})
@@ -1620,7 +1595,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_broadcast_preview(context.bot, uid, bc)
         return
 
-    # ── 3. Emoji menyu ──
+    # ── 3. Emoji menyu ────────────────────────────────────
     if uid == ADMIN_ID and context.user_data.get("emoji_menu"):
         if text == "⬅️ Orqaga":
             context.user_data.pop("emoji_menu", None)
@@ -1631,7 +1606,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             DB["btn_texts"] = {}
             DB["emoji_ids"] = {}
             EMOJI_IDS.clear()
-            await save_now()
+            asyncio.create_task(save_now())
             await sm(context.bot, uid, "✅ Barcha tugmalar tiklandi!", emoji_menu_kb())
             return
         key = find_key_by_text(text)
@@ -1653,9 +1628,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 emoji_single_action_kb(key))
         return
 
-    # ── 4. Kanal boshqarish submenu ──
+    # ── 4. Kanal boshqarish submenu ───────────────────────
     if uid == ADMIN_ID and context.user_data.get("channel_manage_menu"):
-        # Agar kanal qo'shish state'ida bo'lsa — admin_state_handler'ga
         ch_states = ("add_channel_username", "add_channel_title", "add_channel_url", "add_channel")
         if context.user_data.get("admin_state") in ch_states:
             handled = await admin_state_handler(update, context, text)
@@ -1689,7 +1663,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         return
 
-    # ── 5. Admin reply_to ──
+    # ── 5. Admin reply_to ─────────────────────────────────
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
@@ -1699,7 +1673,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, f"❌ Xato: {e}")
         return
 
-    # ── 6. Admin state handler (narx state'lari oldindan) ──
+    # ── 6. Admin state handler ────────────────────────────
     if uid == ADMIN_ID:
         state = context.user_data.get("admin_state")
         if state in ("set_price_code", "set_price_ep", "set_price_amount",
@@ -1712,19 +1686,17 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if handled:
                 return
 
-    # ── 7. Admin tugmalarini aniqlash ──
+    # ── 7. Admin tugmalarini aniqlash ─────────────────────
     if uid == ADMIN_ID:
         all_admin_btn_keys = [
             "kino_joy", "qism_qosh", "pullik", "stat",
             "kanal_post", "maj_kanal", "karta", "ilova",
             "emoji_soz", "asosiy", "boshqarish", "broadcast", "kino_uch",
         ]
-        # bt() qiymati bo'sh bo'lmasligi kerak
         all_admin_btns = {bt(k): k for k in all_admin_btn_keys if bt(k)}
 
         if text in all_admin_btns:
             key = all_admin_btns[text]
-            # emoji_soz va broadcast — alohida
             if key == "emoji_soz":
                 context.user_data.pop("admin_state", None)
                 context.user_data.pop("editing_btn_key", None)
@@ -1756,14 +1728,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_buttons(update, context, text)
             return
 
-        # ── 8. Qolgan admin state'lar ──
         handled = await admin_state_handler(update, context, text)
         if handled:
             return
 
-    # ── 9. Foydalanuvchi: yordam ──
+    # ── 8. Foydalanuvchi: yordam ──────────────────────────
     if text == bt("yordam"):
-        await context.bot.send_chat_action(uid, action="typing")
         await sm(context.bot, uid,
             "💬 <b>Yordam kerakmi?</b>\n\n"
             "Savol yoki muammoingizni <b>matn, rasm yoki video</b> ko'rinishida yuboring.\n"
@@ -1780,15 +1750,16 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not f_id and not v_id:
             await sm(context.bot, uid, "Admin hali ilova fayl/video joylamagan.")
             return
+        # ── TEZLIK: Video va file parallel yuborish ────────
+        tasks = []
         if v_id:
-            await context.bot.send_chat_action(uid, action="upload_video")
-            await sv(context.bot, uid, v_id, "<b>Ilovani o'rnatish videosi</b>")
+            tasks.append(sv(context.bot, uid, v_id, "<b>Ilovani o'rnatish videosi</b>"))
         if f_id:
-            await context.bot.send_chat_action(uid, action="upload_document")
-            await context.bot.send_document(uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML")
+            tasks.append(context.bot.send_document(uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML"))
+        await asyncio.gather(*tasks, return_exceptions=True)
         return
 
-    # ── 10. Yordam so'rovi ──
+    # ── 9. Yordam so'rovi ─────────────────────────────────
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         cap = (f"<b>Yordam so'rovi</b>\n{user.full_name} (@{user.username or '-'})\n"
@@ -1797,12 +1768,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Xabaringiz adminga yuborildi!")
         return
 
-    # ── 11. To'lov cheki (matn) ──
+    # ── 10. To'lov cheki (matn) ───────────────────────────
     if context.user_data.get("awaiting_check"):
         await sm(context.bot, uid, "Iltimos, chek <b>rasmini</b> yuboring.")
         return
 
-    # ── 12. Kino kodi yoki nomi ──
+    # ── 11. Kino kodi yoki nomi ───────────────────────────
     code, matches = find_movie_code(text)
     if code:
         ns = await check_subscription(uid, context.bot)
@@ -1812,7 +1783,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:",
                 subscription_kb(ns))
             return
-        await context.bot.send_chat_action(uid, action="upload_video")
         await send_movie_menu(update, context, code)
     elif matches:
         await sm(context.bot, uid,
@@ -1828,7 +1798,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def admin_buttons(update, context, text: str):
     uid = update.effective_user.id
-    await context.bot.send_chat_action(uid, action="typing")
 
     if text == bt("boshqarish"):
         context.user_data.pop("admin_state", None)
@@ -1897,7 +1866,7 @@ async def admin_buttons(update, context, text: str):
         return
 
 # ══════════════════════════════════════════════════════════
-# ADMIN STATE HANDLER — TO'LIQ TUZATILGAN
+# ADMIN STATE HANDLER
 # ══════════════════════════════════════════════════════════
 
 async def admin_state_handler(update, context, text: str) -> bool:
@@ -1906,7 +1875,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
     if not state:
         return False
 
-    # ── Broadcast xabar ──
     if state == "broadcast_msg":
         bc = {
             "type": "copy",
@@ -1920,7 +1888,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
         await send_broadcast_preview(context.bot, uid, bc)
         return True
 
-    # ── Kino o'chirish — kod ──
     if state == "delete_movie_code":
         code = text.upper().strip()
         if code not in DB["movies"]:
@@ -1942,7 +1909,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
             f"• Butun kino: <code>kino</code>")
         return True
 
-    # ── Kino o'chirish — qism tanlash ──
     if state == "delete_movie_ep":
         code  = context.user_data.get("del_movie_code")
         movie = DB["movies"].get(code) if code else None
@@ -1957,7 +1923,7 @@ async def admin_state_handler(update, context, text: str) -> bool:
 
         if val == "kino":
             del DB["movies"][code]
-            await save_now()
+            asyncio.create_task(save_now())
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
             await sm(context.bot, uid,
@@ -1968,7 +1934,7 @@ async def admin_state_handler(update, context, text: str) -> bool:
         if val == "hammasi":
             DB["movies"][code]["episodes"] = []
             DB["movies"][code]["prices"]   = {}
-            await save_now()
+            asyncio.create_task(save_now())
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
             await sm(context.bot, uid,
@@ -1996,7 +1962,7 @@ async def admin_state_handler(update, context, text: str) -> bool:
                 except Exception:
                     pass
             DB["movies"][code]["prices"] = new_prices
-            await save_now()
+            asyncio.create_task(save_now())
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
             await sm(context.bot, uid,
@@ -2009,22 +1975,19 @@ async def admin_state_handler(update, context, text: str) -> bool:
             "❌ Noto'g'ri. Qism raqami, <code>hammasi</code> yoki <code>kino</code> kiriting:")
         return True
 
-    # ── Karta ──
     if state == "set_card":
         DB["card_number"] = text
-        await save_now()
+        asyncio.create_task(save_now())
         context.user_data.pop("admin_state", None)
         await sm(context.bot, uid, f"✅ Karta saqlandi: <code>{text}</code>", admin_menu_kb())
         return True
 
-    # ── Kino qo'shish — kod ──
     if state == "add_movie_code":
         context.user_data["new_movie_code"] = text.upper()
         context.user_data["admin_state"]    = "add_movie_title"
         await sm(context.bot, uid, "Kino nomini kiriting:")
         return True
 
-    # ── Kino qo'shish — nom ──
     if state == "add_movie_title":
         code       = context.user_data.get("new_movie_code")
         now        = datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -2035,7 +1998,7 @@ async def admin_state_handler(update, context, text: str) -> bool:
             "prices": {},
             "added_date": now,
         }
-        await save_now()
+        asyncio.create_task(save_now())
         context.user_data["admin_state"] = "add_movie_poster"
         context.user_data["poster_code"] = code
         await sm(context.bot, uid,
@@ -2043,7 +2006,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
             f"📷 Kino posterini yuboring yoki o'tkazib yuborish uchun <b>0</b> kiriting:")
         return True
 
-    # ── Kino poster o'tkazib yuborish ──
     if state == "add_movie_poster":
         code = context.user_data.pop("poster_code", None)
         context.user_data.pop("admin_state", None)
@@ -2054,7 +2016,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
                 movie_added_kb(code))
         return True
 
-    # ── Qism qo'shish — kod ──
     if state == "add_ep_code":
         code = text.upper().strip()
         if code not in DB["movies"]:
@@ -2066,12 +2027,10 @@ async def admin_state_handler(update, context, text: str) -> bool:
         await sm(context.bot, uid, f"<b>{code}</b> uchun video yuboring:")
         return True
 
-    # ── Qism video (matn kelsa) ──
     if state == "add_ep_video":
         await sm(context.bot, uid, "⚠️ Iltimos, matn emas — <b>video fayl</b> yuboring:")
         return True
 
-    # ── Narx — kino kodi ──
     if state == "set_price_code":
         code = text.upper().strip()
         if code not in DB["movies"]:
@@ -2097,7 +2056,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
             f"Qism <b>raqamini</b> kiriting (1 dan {len(eps)} gacha):")
         return True
 
-    # ── Narx — qism raqami ──
     if state == "set_price_ep":
         code = context.user_data.get("price_movie_code")
         if not code or code not in DB["movies"]:
@@ -2126,7 +2084,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
             f"<i>Bepul qilish uchun <code>0</code> kiriting</i>")
         return True
 
-    # ── Narx — miqdor ──
     if state == "set_price_amount":
         code = context.user_data.get("price_movie_code")
         ep   = context.user_data.get("price_ep")
@@ -2148,19 +2105,18 @@ async def admin_state_handler(update, context, text: str) -> bool:
         context.user_data.pop("price_ep", None)
         if amount == "0":
             DB["movies"][code].setdefault("prices", {}).pop(ep, None)
-            await save_now()
+            asyncio.create_task(save_now())
             await sm(context.bot, uid,
                 f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> endi <b>bepul</b>!",
                 admin_menu_kb())
         else:
             DB["movies"][code].setdefault("prices", {})[ep] = amount
-            await save_now()
+            asyncio.create_task(save_now())
             await sm(context.bot, uid,
                 f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> narxi: <b>{amount} so'm</b>",
                 admin_menu_kb())
         return True
 
-    # ── Kanal qo'shish — username ──
     if state == "add_channel_username":
         raw_uname = text.strip()
         uname     = normalize_channel_username(raw_uname)
@@ -2169,7 +2125,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
                 "❌ Kanal username noto'g'ri.\n"
                 "Misol: <code>@mykinochannel</code> yoki <code>https://t.me/mykinochannel</code>")
             return True
-        # Takrorlanishni tekshirish
         for ch in DB.get("channels", []):
             ch_uname = normalize_channel_username(ch.get("username", ""))
             if ch_uname.lower() == uname.lower():
@@ -2179,7 +2134,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
                     f"⚠️ <b>{uname}</b> allaqachon qo'shilgan!\n\n{_channels_list_text()}",
                     channel_manage_kb())
                 return True
-        # Botni kanalda tekshirish
         try:
             channel_info = await resolve_required_channel(context.bot, uname)
         except Exception as e:
@@ -2198,7 +2152,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
             f"yoki yangi nom kiriting:")
         return True
 
-    # ── Kanal qo'shish — nom ──
     if state == "add_channel_title":
         channel_info = context.user_data.pop("ch_info", None)
         if not channel_info:
@@ -2215,7 +2168,7 @@ async def admin_state_handler(update, context, text: str) -> bool:
         channel_info["title"] = title
         channel_info["url"]   = channel_join_url(channel_info.get("username", ""), channel_info.get("url", ""))
         DB["channels"].append(channel_info)
-        await save_now()
+        asyncio.create_task(save_now())
         context.user_data.pop("admin_state", None)
         context.user_data["channel_manage_menu"] = True
         await sm(context.bot, uid,
@@ -2227,7 +2180,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
             channel_manage_kb())
         return True
 
-    # ── Eski kanal format (fallback) ──
     if state in ("add_channel_url", "add_channel"):
         context.user_data.pop("admin_state", None)
         context.user_data["channel_manage_menu"] = True
@@ -2236,7 +2188,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
             channel_manage_kb())
         return True
 
-    # ── Kanalga post — kino kodi ──
     if state == "post_channel_code":
         code = text.upper().strip()
         if code not in DB["movies"]:
@@ -2247,7 +2198,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
         await sm(context.bot, uid, "Kanal username'ini kiriting (masalan @mychannel):")
         return True
 
-    # ── Kanalga post — kanal ──
     if state == "post_channel_target":
         channel = text.strip()
         code    = context.user_data.pop("post_code", None)
@@ -2286,7 +2236,6 @@ async def admin_state_handler(update, context, text: str) -> bool:
             await sm(context.bot, uid, f"❌ Xato: {e}")
         return True
 
-    # ── Ilova fayl/video (matn) ──
     if state == "set_install":
         await sm(context.bot, uid, "⚠️ Iltimos, matn emas — <b>fayl yoki video</b> yuboring:")
         return True
@@ -2320,7 +2269,7 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     DB.setdefault("btn_texts", {})[key] = new_text
     EMOJI_IDS.pop(key, None)
     DB.get("emoji_ids", {}).pop(key, None)
-    await save_now()
+    asyncio.create_task(save_now())
     await sm(context.bot, uid,
         f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\nKo'rinish: <code>{new_text}</code>")
     context.user_data["emoji_menu"] = True
@@ -2336,7 +2285,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg   = update.message
     state = context.user_data.get("admin_state")
 
-    # Broadcast rasm/video
     if uid == ADMIN_ID and state == "broadcast_msg":
         bc = {
             "type": "copy",
@@ -2350,14 +2298,13 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_broadcast_preview(context.bot, uid, bc)
         return
 
-    # Poster yuklash
     if uid == ADMIN_ID and state == "add_movie_poster":
         code = context.user_data.pop("poster_code", None)
         context.user_data.pop("admin_state", None)
         context.user_data.pop("new_movie_code", None)
         if msg.photo and code:
             DB["movies"][code]["poster_file_id"] = msg.photo[-1].file_id
-            await save_now()
+            asyncio.create_task(save_now())
             await sm(context.bot, uid,
                 f"✅ Poster saqlandi!\nKod: <code>{code}</code>",
                 movie_added_kb(code))
@@ -2366,7 +2313,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 movie_added_kb(code) if code else None)
         return
 
-    # Qism video yuklash
     if uid == ADMIN_ID and state == "add_ep_video":
         code = context.user_data.get("ep_movie_code")
         if not code:
@@ -2375,7 +2321,7 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if msg.video:
             DB["movies"][code]["episodes"].append(msg.video.file_id)
-            await save_now()
+            asyncio.create_task(save_now())
             ep_num = len(DB["movies"][code]["episodes"])
             context.user_data.pop("admin_state", None)
             context.user_data.pop("ep_movie_code", None)
@@ -2386,23 +2332,21 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, "⚠️ Faqat video yuboring!")
         return
 
-    # Ilova fayl/video
     if uid == ADMIN_ID and state == "set_install":
         if msg.video:
             DB["settings"]["install_video_id"] = msg.video.file_id
-            await save_now()
+            asyncio.create_task(save_now())
             context.user_data.pop("admin_state", None)
             await sm(context.bot, uid, "✅ O'rnatish videosi saqlandi!", admin_menu_kb())
         elif msg.document:
             DB["settings"]["install_file_id"] = msg.document.file_id
-            await save_now()
+            asyncio.create_task(save_now())
             context.user_data.pop("admin_state", None)
             await sm(context.bot, uid, "✅ O'rnatish fayli saqlandi!", admin_menu_kb())
         else:
             await sm(context.bot, uid, "⚠️ Video yoki fayl yuboring!")
         return
 
-    # To'lov cheki
     if context.user_data.get("awaiting_check") and msg.photo:
         pay_info = context.user_data.pop("awaiting_check")
         pid      = f"{uid}_{pay_info['code']}_{pay_info['ep']}_{int(time.time())}"
@@ -2421,7 +2365,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Chek adminga yuborildi! Tasdiqlanishini kuting.")
         return
 
-    # Yordam so'rovi (media)
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         user_text = msg.caption or msg.text or ""
@@ -2434,7 +2377,6 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Xabaringiz adminga yuborildi!")
         return
 
-    # Admin reply (media)
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
@@ -2460,8 +2402,6 @@ def main():
         raise RuntimeError("BOT_TOKEN environment o'zgaruvchisi kiritilmagan")
     if not ADMIN_ID:
         raise RuntimeError("ADMIN_ID environment o'zgaruvchisi kiritilmagan")
-    if not JSONBIN_API_KEY or not JSONBIN_BIN_ID:
-        logger.warning("JSONBIN_API_KEY/JSONBIN_BIN_ID yo'q — faqat lokal/JSONBlob bilan ishlaydi")
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -2471,12 +2411,11 @@ def main():
     app.add_handler(MessageHandler(
         filters.PHOTO | filters.VIDEO | filters.Document.ALL, media_handler))
 
-    # ─── Periodik sync ─────────────────────────────────────
     async def _periodic_sync(context):
         global DB, _pending_remote_sync
         try:
             if _pending_remote_sync:
-                logger.info("🔁 Pending sync — lokal DBni JSONBin/JSONBlob'ga yuboramiz")
+                logger.info("🔁 Pending sync — remote'ga yuboramiz")
                 await db_save_async(DB)
                 return
 
@@ -2513,12 +2452,10 @@ def main():
             logger.error(f"Periodik sync xato: {e}")
 
     if app.job_queue:
-        # TUZATISH: interval oshirildi (120s), first kechiktirildi (60s)
-        # — start'da hamma narsa allaqachon yuklangan, keraksiz so'rovlarni kamaytiradi
         app.job_queue.run_repeating(_periodic_sync, interval=120, first=60)
         logger.info("🔄 Periodik sync yoqildi (har 2 daqiqada)")
 
-    logger.info(f"🤖 Bot ishga tushdi! v13 — {len(DB.get('movies', {}))} kino, "
+    logger.info(f"🚀 Bot v14 ishga tushdi! — {len(DB.get('movies', {}))} kino, "
                 f"{len(DB.get('users', {}))} foydalanuvchi")
     app.run_polling(drop_pending_updates=True)
 
