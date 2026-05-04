@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v16
-- JSONBlob  → to'liq DB saqlash (kinolar yo'm etilmaydi)
-- Google Sheets → foydalanuvchilar logi
-- Lokal fayl → tezkor cache
-- npoint.io → meta backup (optional)
+Kino Bot - v17 (TUZATILGAN)
+Asosiy tuzatishlar:
+1. Admin holatda "Asosiy menyu" / "Boshqarish" bosish → holat bekor bo'ladi
+2. Qism saqlash ishonchli (retry bilan)
+3. Kino nomi sifatida admin tugmalari qabul qilinmaydi
+4. Kino o'chirish holatida ham navigatsiya ishlaydi
 """
 
 import logging, asyncio, json, time, re, os, threading, copy
@@ -21,15 +22,10 @@ from telegram.ext import (
 BOT_TOKEN  = os.environ.get("BOT_TOKEN")  or "8723400610:AAFaZvlfLYvhZaRsyUuuyGOlWQ0vwjzAA8Y"
 ADMIN_ID   = int(os.environ.get("ADMIN_ID") or "8537782289")
 
-# JSONBlob — to'liq DB
 JSONBLOB_URL = os.environ.get("JSONBLOB_URL") or "https://jsonblob.com/api/jsonBlob/019df4aa-10b1-725c-83f5-9901ab2db9b6"
-
-# Google Sheets — foydalanuvchilar logi
 GSHEET_ID    = os.environ.get("GSHEET_ID")  or "1Lodn9MTb7nysq5l80cQVCu9IKfgQRlnNe654PT0hKQs"
-GSHEET_API   = os.environ.get("GSHEET_API") or ""   # Google Sheets API key (ixtiyoriy)
-
-# npoint.io — meta backup (ixtiyoriy)
-NPOINT_URL = os.environ.get("NPOINT_URL") or ""
+GSHEET_API   = os.environ.get("GSHEET_API") or ""
+NPOINT_URL   = os.environ.get("NPOINT_URL") or ""
 
 LOCAL_BACKUP_FILE = "db_backup.json"
 LOCAL_MOVIES_FILE = "movies_backup.json"
@@ -123,7 +119,6 @@ DEFAULT_DB = {
 
 EMOJI_IDS: dict = {}
 
-# Subscription cache
 _sub_cache: dict[int, tuple[float, list]] = {}
 SUB_CACHE_TTL = 10
 
@@ -167,8 +162,6 @@ def _has_real_content(data):
     return bool(data.get("movies")) or bool(data.get("users")) or bool(data.get("channels"))
 
 
-# ── Lokal backup ──────────────────────────────────────────
-
 def _save_local(data: dict) -> bool:
     try:
         movies = data.get("movies", {})
@@ -182,7 +175,6 @@ def _save_local(data: dict) -> bool:
 
         db_small = {k: v for k, v in data.items() if k != "movies"}
         db_small["movies"] = {}
-
         tmp = LOCAL_BACKUP_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(db_small, f, ensure_ascii=False)
@@ -212,36 +204,34 @@ def _load_local() -> dict | None:
         return None
 
 
-# ══════════════════════════════════════════════════════════
-# JSONBLOB — TO'LIQ DB SAQLASH
-# ══════════════════════════════════════════════════════════
-
-def _save_jsonblob(data: dict) -> bool:
-    """JSONBlob ga to'liq DB saqlash (kinolar bilan)"""
+def _save_jsonblob(data: dict, retries: int = 3) -> bool:
+    """JSONBlob ga to'liq DB saqlash (retry bilan)"""
     if not JSONBLOB_URL:
         return False
-    try:
-        payload = json.dumps(data, ensure_ascii=False)
-        size_kb = len(payload.encode("utf-8")) / 1024
-        logger.info(f"JSONBlob saqlash: {size_kb:.1f} KB")
+    payload = json.dumps(data, ensure_ascii=False)
+    size_kb = len(payload.encode("utf-8")) / 1024
+    logger.info(f"JSONBlob saqlash: {size_kb:.1f} KB")
 
-        r = requests.put(
-            JSONBLOB_URL,
-            headers={"Content-Type": "application/json"},
-            data=payload.encode("utf-8"),
-            timeout=30,
-        )
-        if r.status_code in (200, 201):
-            logger.info("✅ JSONBlob saqlandi")
-            return True
-        logger.error(f"JSONBlob save status {r.status_code}: {r.text[:200]}")
-    except Exception as e:
-        logger.error(f"JSONBlob save xato: {e}")
+    for attempt in range(retries):
+        try:
+            r = requests.put(
+                JSONBLOB_URL,
+                headers={"Content-Type": "application/json"},
+                data=payload.encode("utf-8"),
+                timeout=45,
+            )
+            if r.status_code in (200, 201):
+                logger.info(f"✅ JSONBlob saqlandi ({size_kb:.1f} KB)")
+                return True
+            logger.error(f"JSONBlob save #{attempt+1} status {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            logger.error(f"JSONBlob save #{attempt+1} xato: {e}")
+        if attempt < retries - 1:
+            time.sleep(3 * (attempt + 1))
     return False
 
 
 def _load_jsonblob() -> dict | None:
-    """JSONBlob dan to'liq DB yuklash"""
     if not JSONBLOB_URL:
         return None
     for attempt in range(3):
@@ -265,37 +255,17 @@ def _load_jsonblob() -> dict | None:
     return None
 
 
-# ══════════════════════════════════════════════════════════
-# GOOGLE SHEETS — FOYDALANUVCHI LOGI
-# ══════════════════════════════════════════════════════════
-
 def _gsheet_append_row(row_data: list) -> bool:
-    """
-    Google Sheets ga satr qo'shish.
-    Sheet ommaviy (anyone with link can edit) bo'lishi kerak,
-    yoki GSHEET_API key berilgan bo'lishi kerak.
-
-    Ishlatish uchun:
-    1. Sheets → Share → Anyone with link → Editor
-    2. Script editor (Apps Script) yoki Sheets API ishlatish mumkin.
-
-    Hozirgi implementatsiya: Sheets API v4 orqali (API key bilan)
-    """
     if not GSHEET_ID:
         return False
     try:
-        # Google Sheets API v4 — append
         url = (f"https://sheets.googleapis.com/v4/spreadsheets/"
                f"{GSHEET_ID}/values/Users!A:Z:append"
-               f"?valueInputOption=RAW"
-               f"&insertDataOption=INSERT_ROWS")
+               f"?valueInputOption=RAW&insertDataOption=INSERT_ROWS")
         if GSHEET_API:
             url += f"&key={GSHEET_API}"
-
         body = {"values": [row_data]}
-        headers = {"Content-Type": "application/json"}
-
-        r = requests.post(url, headers=headers,
+        r = requests.post(url, headers={"Content-Type": "application/json"},
                           data=json.dumps(body), timeout=10)
         if r.status_code in (200, 201):
             return True
@@ -306,16 +276,10 @@ def _gsheet_append_row(row_data: list) -> bool:
 
 
 def _gsheet_log_user(user_id: int, name: str, username: str):
-    """Yangi foydalanuvchini Google Sheets ga yozish"""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     row = [str(user_id), name, f"@{username}" if username else "", now]
-    # Fon threadida yuborish (bot ishini to'xtatmasin)
     threading.Thread(target=_gsheet_append_row, args=(row,), daemon=True).start()
 
-
-# ══════════════════════════════════════════════════════════
-# NPOINT — META BACKUP (ixtiyoriy)
-# ══════════════════════════════════════════════════════════
 
 def _save_npoint_meta(data: dict) -> bool:
     if not NPOINT_URL:
@@ -328,93 +292,59 @@ def _save_npoint_meta(data: dict) -> bool:
             "btn_texts": data.get("btn_texts", {}),
             "emoji_ids": data.get("emoji_ids", {}),
             "stats": data.get("stats", {}),
-            "_meta_only": True,
         }
         payload = json.dumps(meta, ensure_ascii=False)
-        if len(payload.encode("utf-8")) > 60000:
-            meta.pop("btn_texts", None)
-            payload = json.dumps(meta, ensure_ascii=False)
-
-        r = requests.put(
-            NPOINT_URL,
-            headers={"Content-Type": "application/json"},
-            data=payload.encode("utf-8"),
-            timeout=15,
-        )
+        r = requests.put(NPOINT_URL, headers={"Content-Type": "application/json"},
+                         data=payload.encode("utf-8"), timeout=15)
         return r.status_code in (200, 201)
     except Exception as e:
         logger.error(f"npoint save xato: {e}")
     return False
 
 
-# ══════════════════════════════════════════════════════════
-# DB YUKLASH — PRIORITET TARTIBI
-# ══════════════════════════════════════════════════════════
-
 def db_load():
     logger.info("DB yuklanmoqda...")
-
-    # 1. JSONBlob — asosiy bulut (to'liq kinolar bilan)
     blob = _load_jsonblob()
     if blob and isinstance(blob, dict) and _has_real_content(blob):
         db = _normalize_db(blob)
         EMOJI_IDS.clear()
         EMOJI_IDS.update(db.get("emoji_ids", {}))
-        # Lokal cache yangilash
         _save_local(db)
         logger.info(f"✅ JSONBlob dan yuklandi: "
                     f"{len(db.get('movies', {}))} kino, "
                     f"{len(db.get('users', {}))} user")
         return db
 
-    # 2. Lokal backup (Railway restart bo'lsa)
     local = _load_local()
     if local and _has_real_content(local):
         EMOJI_IDS.clear()
         EMOJI_IDS.update(local.get("emoji_ids", {}))
-        logger.info(f"✅ Lokal backupdan yuklandi: "
-                    f"{len(local.get('movies', {}))} kino")
-        # JSONBlob ga qayta yuklash (fon)
+        logger.info(f"✅ Lokal backupdan yuklandi: {len(local.get('movies', {}))} kino")
         threading.Thread(target=_save_jsonblob, args=(local,), daemon=True).start()
         return local
 
-    # 3. Bo'sh DB
     logger.warning("⚠️ Hech narsa topilmadi — bo'sh DB")
     return json.loads(json.dumps(DEFAULT_DB))
 
 
-# ══════════════════════════════════════════════════════════
-# DB SAQLASH
-# ══════════════════════════════════════════════════════════
-
 async def db_save_async(data: dict) -> bool:
-    """Asosiy saqlash: JSONBlob (to'liq) + lokal cache"""
     data["emoji_ids"] = dict(EMOJI_IDS)
-
-    # Lokal — tezkor cache
     _save_local(data)
-
-    # JSONBlob — to'liq DB (kinolar bilan birga)
     ok = await asyncio.to_thread(_save_jsonblob, data)
-
-    # npoint — meta backup (ixtiyoriy)
     if NPOINT_URL:
         asyncio.create_task(asyncio.to_thread(_save_npoint_meta, data))
-
     n = len(data.get("movies", {}))
     if ok:
         logger.info(f"✅ DB saqlandi — {n} kino")
     else:
         logger.warning(f"⚠️ JSONBlob saqlanmadi, faqat lokal — {n} kino")
-
-    return True
+    return ok
 
 
 DB = db_load()
 
 
 def save():
-    """Fon saqlash"""
     DB["emoji_ids"] = dict(EMOJI_IDS)
     _save_local(DB)
     try:
@@ -562,6 +492,32 @@ def find_key_by_text(text: str) -> str | None:
         txt_stripped  = strip_emoji_prefix(text)
         if cur_stripped and txt_stripped and cur_stripped == txt_stripped:
             return key
+    return None
+
+
+# ══════════════════════════════════════════════════════════
+# ADMIN NAVIGATSIYA TUGMALARI — HOLAT BEKOR QILISH
+# ══════════════════════════════════════════════════════════
+
+def _is_admin_nav_button(text: str) -> bool:
+    """
+    Matn admin navigatsiya tugmasi ekanligini tekshiradi.
+    Bu tugmalar bossilsa, joriy holat bekor qilinib menyu ochiladi.
+    """
+    nav_keys = ["asosiy", "boshqarish"]
+    for k in nav_keys:
+        v = bt(k)
+        if v and (text == v or strip_emoji_prefix(text) == strip_emoji_prefix(v)):
+            return True
+    return False
+
+
+def _get_admin_nav_key(text: str) -> str | None:
+    """Qaysi navigatsiya tugmasi ekanligini qaytaradi."""
+    for k in ["asosiy", "boshqarish"]:
+        v = bt(k)
+        if v and (text == v or strip_emoji_prefix(text) == strip_emoji_prefix(v)):
+            return k
     return None
 
 
@@ -894,7 +850,6 @@ def register_user(user):
             "paid_episodes": {},
             "watched": {},
         }
-        # Google Sheets ga yozish (fon)
         _gsheet_log_user(user.id, user.full_name, user.username or "")
         try:
             loop = asyncio.get_running_loop()
@@ -1017,7 +972,6 @@ async def do_broadcast(bot, bc: dict):
     buttons = bc.get("buttons", [])
     markup  = build_broadcast_markup(buttons)
     ok = fail = 0
-
     sem = asyncio.Semaphore(10)
 
     async def send_one(uid):
@@ -1228,7 +1182,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         code = data.split("|", 1)[1]
         context.user_data["admin_state"]   = "add_ep_video"
         context.user_data["ep_movie_code"] = code
-        await sm(context.bot, uid, f"<b>{code}</b> uchun video yuboring:")
+        movie = DB["movies"].get(code, {})
+        ep_num = len(movie.get("episodes", [])) + 1
+        await sm(context.bot, uid,
+            f"🎬 <b>{movie.get('title', code)}</b>\n"
+            f"📹 <b>{ep_num}-qism</b> uchun video yuboring:")
         return
 
     if data.startswith("quick_price|"):
@@ -1546,7 +1504,7 @@ async def cb_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ══════════════════════════════════════════════════════════
-# TEXT HANDLER
+# TEXT HANDLER (TUZATILGAN)
 # ══════════════════════════════════════════════════════════
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1555,7 +1513,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg  = update.message
     text = (msg.text or "").strip()
 
-    # 1. editing_btn_key
+    # ── 1. editing_btn_key ─────────────────────────────
     if uid == ADMIN_ID and context.user_data.get("editing_btn_key"):
         key = context.user_data.pop("editing_btn_key")
         if not text:
@@ -1600,7 +1558,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "Tugmani tanlang:", emoji_menu_kb())
         return
 
-    # 2. Broadcast tugma qo'shish
+    # ── 2. Broadcast tugma qo'shish ────────────────────
     if uid == ADMIN_ID and context.user_data.get("bc_adding_btn"):
         stage = context.user_data["bc_adding_btn"]
         bc    = context.user_data.get("bc_msg", {})
@@ -1619,7 +1577,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_broadcast_preview(context.bot, uid, bc)
         return
 
-    # 3. Emoji menyu
+    # ── 3. Emoji menyu ──────────────────────────────────
     if uid == ADMIN_ID and context.user_data.get("emoji_menu"):
         if text == "⬅️ Orqaga":
             context.user_data.pop("emoji_menu", None)
@@ -1652,7 +1610,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 emoji_single_action_kb(key))
         return
 
-    # 4. Kanal boshqarish submenu
+    # ── 4. Kanal boshqarish submenu ─────────────────────
     if uid == ADMIN_ID and context.user_data.get("channel_manage_menu"):
         ch_states = ("add_channel_username", "add_channel_title", "add_channel_url", "add_channel")
         if context.user_data.get("admin_state") in ch_states:
@@ -1687,7 +1645,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         return
 
-    # 5. Admin reply_to
+    # ── 5. Admin reply_to ───────────────────────────────
     if uid == ADMIN_ID and "reply_to" in context.user_data:
         target = context.user_data.pop("reply_to")
         try:
@@ -1697,7 +1655,25 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await sm(context.bot, uid, f"❌ Xato: {e}")
         return
 
-    # 6. Admin state handler
+    # ══════════════════════════════════════════════════
+    # ❗ MUHIM: Admin holatda navigatsiya tugmalarini
+    # birinchi tekshirish — holat bekor qilinadi
+    # ══════════════════════════════════════════════════
+    if uid == ADMIN_ID and context.user_data.get("admin_state"):
+        nav_key = _get_admin_nav_key(text)
+        if nav_key:
+            state = context.user_data.get("admin_state")
+            # broadcast_msg holatida navigatsiya ishlaydi
+            # Boshqa holatlarda ham ishlaydi
+            clear_admin_state(context)
+            if nav_key == "asosiy":
+                await sm(context.bot, uid, "Asosiy menyu", main_menu_kb(is_admin=True))
+            else:  # boshqarish
+                await sm(context.bot, uid, "<b>Admin panel</b>", admin_menu_kb())
+            logger.info(f"Admin holat '{state}' bekor qilindi, navigatsiya: {nav_key}")
+            return
+
+    # ── 6. Admin state handler ──────────────────────────
     if uid == ADMIN_ID:
         state = context.user_data.get("admin_state")
         if state:
@@ -1705,7 +1681,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if handled:
                 return
 
-    # 7. Admin tugmalarini aniqlash
+    # ── 7. Admin tugmalarini aniqlash ───────────────────
     if uid == ADMIN_ID:
         all_admin_btn_keys = [
             "kino_joy", "qism_qosh", "pullik", "stat",
@@ -1751,7 +1727,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if handled:
             return
 
-    # 8. Yordam
+    # ── 8. Yordam ───────────────────────────────────────
     if text == bt("yordam"):
         await sm(context.bot, uid,
             "💬 <b>Yordam kerakmi?</b>\n\n"
@@ -1777,7 +1753,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.gather(*tasks, return_exceptions=True)
         return
 
-    # 9. Yordam so'rovi
+    # ── 9. Yordam so'rovi ───────────────────────────────
     if context.user_data.get("awaiting_help"):
         context.user_data.pop("awaiting_help", None)
         cap = (f"<b>Yordam so'rovi</b>\n{user.full_name} (@{user.username or '-'})\n"
@@ -1786,12 +1762,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sm(context.bot, uid, "✅ Xabaringiz adminga yuborildi!")
         return
 
-    # 10. To'lov cheki (matn)
+    # ── 10. To'lov cheki (matn) ─────────────────────────
     if context.user_data.get("awaiting_check"):
         await sm(context.bot, uid, "Iltimos, chek <b>rasmini</b> yuboring.")
         return
 
-    # 11. Kino kodi
+    # ── 11. Kino kodi ───────────────────────────────────
     code, matches = find_movie_code(text)
     if code:
         ns = await check_subscription(uid, context.bot)
@@ -1907,8 +1883,28 @@ async def admin_buttons(update, context, text: str):
 
 
 # ══════════════════════════════════════════════════════════
-# ADMIN STATE HANDLER
+# ADMIN STATE HANDLER (TUZATILGAN)
 # ══════════════════════════════════════════════════════════
+
+# Admin tugmalari ro'yxati — bularni kino nomi/kodi sifatida qabul qilmaymiz
+ADMIN_RESERVED_TEXTS = set()
+
+
+def _get_admin_reserved_texts() -> set:
+    """Admin tugmalari matni — bularni holat inputi sifatida qabul qilmaymiz"""
+    keys = [
+        "kino_joy", "qism_qosh", "pullik", "stat", "kanal_post",
+        "maj_kanal", "karta", "ilova", "emoji_soz", "asosiy",
+        "boshqarish", "broadcast", "kino_uch", "yordam", "install",
+    ]
+    result = set()
+    for k in keys:
+        v = bt(k)
+        if v:
+            result.add(v)
+            result.add(strip_emoji_prefix(v))
+    return result
+
 
 async def admin_state_handler(update, context, text: str) -> bool:
     state = context.user_data.get("admin_state")
@@ -2040,13 +2036,11 @@ async def admin_state_handler(update, context, text: str) -> bool:
         if len(code) > 30:
             await sm(context.bot, uid, "❌ Kod 30 ta belgidan oshmasin. Qayta kiriting:")
             return True
-        admin_btns = {bt(k) for k in ["kino_joy", "qism_qosh", "pullik", "stat",
-                                        "kanal_post", "maj_kanal", "karta", "ilova",
-                                        "emoji_soz", "asosiy", "boshqarish"]}
-        if text in admin_btns or text.startswith("/"):
+        # Admin tugmalari kodi bo'la olmaydi
+        reserved = _get_admin_reserved_texts()
+        if text in reserved or text.startswith("/"):
             await sm(context.bot, uid, "❌ Bu kino kodi emas. To'g'ri kod kiriting:")
             return True
-
         if code in DB["movies"]:
             movie = DB["movies"][code]
             await sm(context.bot, uid,
@@ -2064,6 +2058,14 @@ async def admin_state_handler(update, context, text: str) -> bool:
         return True
 
     if state == "add_movie_title":
+        # ❗ Asosiy tuzatish: kino nomi sifatida admin tugmalari qabul qilinmaydi
+        reserved = _get_admin_reserved_texts()
+        if text in reserved or text.startswith("/"):
+            await sm(context.bot, uid,
+                "❌ Bu kino nomi emas — admin tugmasi bosildi.\n\n"
+                f"Kino nomini kiriting (masalan: <b>Avatar 2</b>):")
+            return True
+
         code = context.user_data.get("new_movie_code")
         if not code:
             await sm(context.bot, uid, "❌ Xatolik yuz berdi. Qaytadan boshlang.")
@@ -2115,6 +2117,11 @@ async def admin_state_handler(update, context, text: str) -> bool:
         if not code:
             await sm(context.bot, uid, "❌ Kod kiriting:")
             return True
+        # Admin tugmasi kino kodi emas
+        reserved = _get_admin_reserved_texts()
+        if text in reserved or text.startswith("/"):
+            await sm(context.bot, uid, "❌ Bu kino kodi emas. Kino kodini kiriting:")
+            return True
 
         if code not in DB["movies"]:
             _, matches = find_movie_code(text)
@@ -2160,6 +2167,11 @@ async def admin_state_handler(update, context, text: str) -> bool:
         return True
 
     if state == "set_price_code":
+        # Admin tugmasi kino kodi emas
+        reserved = _get_admin_reserved_texts()
+        if text in reserved or text.startswith("/"):
+            await sm(context.bot, uid, "❌ Bu kino kodi emas. Kino kodini kiriting:")
+            return True
         code = text.upper().strip()
         if code not in DB["movies"]:
             _, matches = find_movie_code(text)
@@ -2324,6 +2336,11 @@ async def admin_state_handler(update, context, text: str) -> bool:
         return True
 
     if state == "post_channel_code":
+        # Admin tugmasi kino kodi emas
+        reserved = _get_admin_reserved_texts()
+        if text in reserved or text.startswith("/"):
+            await sm(context.bot, uid, "❌ Bu kino kodi emas. Kino kodini kiriting:")
+            return True
         code = text.upper().strip()
         if code not in DB["movies"]:
             _, matches = find_movie_code(text)
@@ -2475,8 +2492,12 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         DB["movies"][code]["episodes"].append(msg.video.file_id)
         ep_num = len(DB["movies"][code]["episodes"])
 
-        # DARHOL saqlash — muhim!
-        await db_save_async(DB)
+        # DARHOL saqlash — muhim! (retry bilan)
+        save_ok = await db_save_async(DB)
+        if not save_ok:
+            # Qayta urinish
+            await asyncio.sleep(2)
+            await db_save_async(DB)
 
         context.user_data.pop("admin_state", None)
         context.user_data.pop("ep_movie_code", None)
@@ -2590,7 +2611,7 @@ def main():
         app.job_queue.run_repeating(_periodic_sync, interval=300, first=60)
         logger.info("🔄 Periodik sync yoqildi (har 5 daqiqada → JSONBlob)")
 
-    logger.info(f"🚀 Bot v16 ishga tushdi! — {len(DB.get('movies', {}))} kino, "
+    logger.info(f"🚀 Bot v17 ishga tushdi! — {len(DB.get('movies', {}))} kino, "
                 f"{len(DB.get('users', {}))} foydalanuvchi")
     app.run_polling(drop_pending_updates=True)
 
