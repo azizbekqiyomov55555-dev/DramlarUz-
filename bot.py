@@ -25,7 +25,7 @@ from telegram.ext import (
 # ─── KONFIGURATSIYA ────────────────────────────────────────
 # Tokeningizni xohlasangiz to'g'ridan-to'g'ri shu yerga yozing,
 # yoki environment variable (BOT_TOKEN) qo'ying — eng yaxshi yo'l.
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8723400610:AAFA6_Ns01_o1POHp7rPsCEbjsMCintW8EE")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8723400610:AAFaZvlfLYvhZaRsyUuuyGOlWQ0vwjzAA8Y")
 ADMIN_ID  = int(os.environ.get("ADMIN_ID", "8537782289"))
 
 # ─── Supabase — ASOSIY baza (eng ishonchli) ────────────────
