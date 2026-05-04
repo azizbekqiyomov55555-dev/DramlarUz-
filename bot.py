@@ -1723,10 +1723,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await admin_buttons(update, context, text)
             return
 
-        handled = await admin_state_handler(update, context, text)
-        if handled:
-            return
-
     # ── 8. Yordam ───────────────────────────────────────
     if text == bt("yordam"):
         await sm(context.bot, uid,
@@ -2579,6 +2575,19 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════════════
 
 def main():
+    # ── LOCK: Faqat bitta instance ishlashini ta'minlash ──
+    import sys
+    import fcntl
+    _lock_file = open("/tmp/kino_bot_v18.lock", "w")
+    try:
+        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_file.write(str(os.getpid()))
+        _lock_file.flush()
+    except IOError:
+        logger.error("❌ Bot allaqachon ishlamoqda! Ikkinchi instance o'chirildi.")
+        sys.exit(1)
+    # ─────────────────────────────────────────────────────
+
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN environment o'zgaruvchisi kiritilmagan")
     if not ADMIN_ID:
@@ -2611,7 +2620,7 @@ def main():
         app.job_queue.run_repeating(_periodic_sync, interval=300, first=60)
         logger.info("🔄 Periodik sync yoqildi (har 5 daqiqada → JSONBlob)")
 
-    logger.info(f"🚀 Bot v17 ishga tushdi! — {len(DB.get('movies', {}))} kino, "
+    logger.info(f"🚀 Bot v18 ishga tushdi! — {len(DB.get('movies', {}))} kino, "
                 f"{len(DB.get('users', {}))} foydalanuvchi")
     app.run_polling(drop_pending_updates=True)
 
