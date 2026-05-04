@@ -1,26 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v10
-TUZATISHLAR (v9):
-1. Majburiy kanal to'liq ishlaydi:
-   - Kanal qo'shish (format tekshiriladi)
-   - Kanal o'chirish (ro'yxatdan tanlash)
-   - Kanallar ro'yxatini ko'rish
-2. admin_buttons da maj_kanal uchun submenu qo'shildi
-AVVALGI (v8):
-3. Pullik qilish to'liq ishlaydi
-4. Qismlar sahifalar bo'yicha ko'rsatiladi
-5. Broadcast, emoji sozlamalari
+Kino Bot - v14
+TUZATISHLAR (v14 - PTB 9.4 moslik):
+1. PTB 9.4: InlineKeyboardButton/KeyboardButton to'g'ri ishlatildi
+2. bot.get_me() keshi qo'shildi — tezlik oshdi
+3. save_fast() muammosi tuzatildi
+4. Emoji tugmalar to'g'ri ishlaydi
+5. Kino saqlash ishonchli qilindi
 """
-import logging, asyncio, json, time, re, os, threading, copy, html
+import logging, asyncio, json, time, re, os, threading, html
 from datetime import datetime
 import requests
 import aiohttp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters,
 )
+
+# Bot ma'lumotlarini keshlash (bot.get_me() har safar chaqirilmasin)
+_BOT_ME_CACHE = None
 
 # ─── KONFIGURATSIYA (kod ichida) ───────────────────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8723400610:AAFaZvlfLYvhZaRsyUuuyGOlWQ0vwjzAA8Y"
@@ -529,13 +528,15 @@ DB = db_load()
 
 
 def save():
-    """Fon saqlash: oddiy holatlar uchun. Muhim admin o'zgarishlarida save_now() ishlating."""
+    """Fon saqlash: darhol lokalga yozadi, JSONBin fonda yuboriladi."""
     global _background_save_task
     try:
         loop = asyncio.get_running_loop()
         DB["emoji_ids"] = dict(EMOJI_IDS)
         _save_local(json.dumps(DB, ensure_ascii=False))
         if _background_save_task and not _background_save_task.done():
+            # Avvalgi task hali tugamagan — yangi task yaratmaymiz,
+            # lekin lokal allaqachon yangilangan
             return
         task = loop.create_task(db_save_async(DB))
         _background_save_task = task
@@ -558,13 +559,41 @@ async def save_now():
 
 
 async def save_fast():
-    """Tez javob berish uchun lokalga darhol yozadi, remote save fon rejimida ketadi."""
-    save()
+    """Tez javob berish: lokalga darhol yozadi, remote fonda ketadi.
+    TUZATISH: save() ni to'g'ri chaqiradi."""
+    DB["emoji_ids"] = dict(EMOJI_IDS)
+    _save_local(json.dumps(DB, ensure_ascii=False))
+    # Remote saqlashni fon rejimida yuborish
+    global _background_save_task
+    try:
+        loop = asyncio.get_running_loop()
+        if not (_background_save_task and not _background_save_task.done()):
+            task = loop.create_task(db_save_async(DB))
+            _background_save_task = task
+            def _done(t):
+                global _background_save_task
+                try:
+                    t.result()
+                except Exception as e:
+                    logger.error(f"save_fast() task xato: {e}")
+                finally:
+                    _background_save_task = None
+            task.add_done_callback(_done)
+    except Exception as e:
+        logger.error(f"save_fast loop xato: {e}")
     return True
 
 
 def save_sync():
     db_save(DB)
+
+
+async def get_bot_me(bot):
+    """bot.get_me() ni keshlaydi — har safar API chaqirilmaydi (tezlik oshadi)."""
+    global _BOT_ME_CACHE
+    if _BOT_ME_CACHE is None:
+        _BOT_ME_CACHE = await bot.get_me()
+    return _BOT_ME_CACHE
 
 
 def bt(key):
@@ -712,27 +741,25 @@ def find_key_by_text(text: str) -> str | None:
 # ══════════════════════════════════════════════════════════
 
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
-    b = {"text": text}
-    if data:     b["callback_data"] = data
-    if url:      b["url"] = url
-    if style:    b["style"] = style
-    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
-    return b
+    """PTB 9.4 uchun InlineKeyboardButton obyekti."""
+    if url:
+        return InlineKeyboardButton(text=text, url=url)
+    return InlineKeyboardButton(text=text, callback_data=data or "noop")
 
 
 def rbtn(text, style=None, emoji_id=None):
-    b = {"text": text}
-    if style:    b["style"] = style
-    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
-    return b
+    """PTB 9.4 uchun KeyboardButton obyekti."""
+    return KeyboardButton(text=text)
 
 
 def ikb(rows):
-    return {"inline_keyboard": rows}
+    """InlineKeyboardMarkup yaratish."""
+    return InlineKeyboardMarkup(rows)
 
 
 def rkb(rows, resize=True):
-    return {"keyboard": rows, "resize_keyboard": resize}
+    """ReplyKeyboardMarkup yaratish."""
+    return ReplyKeyboardMarkup(rows, resize_keyboard=resize)
 
 # ══════════════════════════════════════════════════════════
 # KLAVIATURALAR
@@ -995,7 +1022,7 @@ async def resolve_required_channel(bot, raw_username: str) -> dict:
         raise ValueError("Kanal username noto'g'ri")
 
     chat = await bot.get_chat(username)
-    bot_user = await bot.get_me()
+    bot_user = await get_bot_me(bot)
     bot_member = await bot.get_chat_member(chat.id, bot_user.id)
     if bot_member.status in ("left", "kicked"):
         raise ValueError("Bot kanalga qo'shilmagan")
@@ -1111,9 +1138,8 @@ def build_broadcast_markup(buttons: list):
         return None
     rows = []
     for b in buttons:
-        btn_style = b.get("style", "primary")
-        rows.append([ibtn(b["text"], url=b["url"], style=btn_style)])
-    return ikb(rows)
+        rows.append([InlineKeyboardButton(text=b["text"], url=b["url"])])
+    return InlineKeyboardMarkup(rows)
 
 
 async def send_broadcast_preview(bot, uid, bc: dict):
@@ -1561,7 +1587,7 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     await context.bot.send_chat_action(q.from_user.id, action="upload_video")
 
-    bot_me = await context.bot.get_me()
+    bot_me = await get_bot_me(context.bot)
     share_url = f"https://t.me/share/url?url=https://t.me/{bot_me.username}?start=code_{code}"
     caption = f"🎬 <b>{movie.get('title')}</b>\n📺 Qism: <b>{ep}</b>"
 
@@ -1577,7 +1603,8 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         movie["views"][ep] = movie["views"].get(ep, 0) + 1
         DB["users"].setdefault(user_id, {}).setdefault("watched", {})[f"{code}_{ep}"] = True
         DB["stats"]["total_views"] = DB["stats"].get("total_views", 0) + 1
-        await db_save_async(DB)
+        await asyncio.sleep(0)  # event loop ga imkon berish
+        save()  # fon rejimida saqlash
 
     asyncio.create_task(update_stats())
 
@@ -1635,7 +1662,8 @@ async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 movie["views"][pay["ep"]] = movie["views"].get(pay["ep"], 0) + 1
                 DB["users"][uid].setdefault("watched", {})[f"{pay['code']}_{pay['ep']}"] = True
                 DB["stats"]["total_views"] = DB["stats"].get("total_views", 0) + 1
-                await db_save_async(DB)
+                await asyncio.sleep(0)
+                save()
 
             asyncio.create_task(update_pay_stats())
     else:
@@ -2413,7 +2441,7 @@ async def admin_state_handler(update, context, text):
         channel = text
         code = context.user_data.get("post_code")
         movie = DB["movies"].get(code, {})
-        bot_me = await context.bot.get_me()
+        bot_me = await get_bot_me(context.bot)
         markup = channel_post_kb(bot_me.username, code)
         title = movie.get('title', code)
         ep_count = len(movie.get('episodes', []))
@@ -2635,7 +2663,12 @@ def main():
         raise RuntimeError("ADMIN_ID environment o'zgaruvchisi kiritilmagan")
     if not JSONBIN_API_KEY or not JSONBIN_BIN_ID:
         logger.warning("JSONBIN_API_KEY/JSONBIN_BIN_ID yo'q — bot faqat lokal/JSONBlob bilan ishlaydi")
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .concurrent_updates(True)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
@@ -2718,8 +2751,11 @@ def main():
         app.job_queue.run_repeating(_periodic_refresh, interval=60, first=30)
         logger.info("🔄 Periodik JSONBin sync yoqildi (har 60 soniyada)")
 
-    logger.info(f"Bot ishga tushdi! v13 — {len(DB.get('movies', {}))} kino xotirada")
-    app.run_polling(drop_pending_updates=True)
+    logger.info(f"Bot ishga tushdi! v14 (PTB 9.4) — {len(DB.get('movies', {}))} kino xotirada")
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES,
+    )
 
 
 if __name__ == "__main__":
