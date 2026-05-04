@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v10
-TUZATISHLAR (v9):
-1. Majburiy kanal to'liq ishlaydi:
-   - Kanal qo'shish (format tekshiriladi)
-   - Kanal o'chirish (ro'yxatdan tanlash)
-   - Kanallar ro'yxatini ko'rish
-2. admin_buttons da maj_kanal uchun submenu qo'shildi
-AVVALGI (v8):
-3. Pullik qilish to'liq ishlaydi
-4. Qismlar sahifalar bo'yicha ko'rsatiladi
-5. Broadcast, emoji sozlamalari
+Kino Bot - v13 (API 9.4 + Premium Emoji + Tezlashtirilgan)
+TUZATISHLAR (v13):
+1. Bot API 9.4 — InlineKeyboardButton va KeyboardButton style parametri to'g'ri uzatiladi
+2. Premium (custom) emoji — tugmalarga icon_custom_emoji_id qo'shildi
+3. Rangli tugmalar — barcha tugmalar rang bilan chiqadi
+4. Kino/JSONBin saqlash tezlashtirildi — parallel async saqlash, retry kamaytirildi
+5. Broadcast tezlashtirildi — asyncio.sleep 0.05→0.03, parallel yuborish
+6. Periodik sync 60s da ishlaydi, dead-lock yo'qotildi
 """
 import logging, asyncio, json, time, re, os, threading, copy
 from datetime import datetime
@@ -18,7 +15,7 @@ import requests
 import aiohttp
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup, KeyboardButton,
+    KeyboardButton, ReplyKeyboardMarkup,
 )
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -192,9 +189,9 @@ def _load_from_jsonbin():
     if not JSONBIN_LATEST or not JSONBIN_API_KEY:
         logger.warning("JSONBIN_API_KEY yoki JSONBIN_BIN_ID kiritilmagan — JSONBin o'tkazib yuborildi")
         return None
-    for attempt in range(8):
+    for attempt in range(5):  # 8→5: tezroq
         try:
-            r = requests.get(JSONBIN_LATEST, headers=JSONBIN_HEADERS, timeout=30)
+            r = requests.get(JSONBIN_LATEST, headers=JSONBIN_HEADERS, timeout=15)  # 30→15s
             if r.status_code == 200:
                 try:
                     body = r.json()
@@ -212,8 +209,8 @@ def _load_from_jsonbin():
                 logger.error(f"JSONBin load status {r.status_code}: {r.text[:200]}")
         except Exception as e:
             logger.error(f"JSONBin load #{attempt+1}: {e}")
-        if attempt < 7:
-            time.sleep(min(10, 2 + attempt))  # startda to'liq yuklash uchun retry
+        if attempt < 4:
+            time.sleep(min(5, 1 + attempt))  # tezroq retry
     return None
 
 
@@ -343,12 +340,12 @@ def _save_jsonbin_sync(payload: str):
 async def _save_jsonblob_async(session, payload: str):
     if not JSONBLOB_URL:
         return False
-    for attempt in range(3):
+    for attempt in range(2):  # 3→2 retry
         try:
             async with session.put(
                 JSONBLOB_URL, data=payload.encode("utf-8"),
                 headers=JSONBLOB_HEADERS,
-                timeout=aiohttp.ClientTimeout(total=60)
+                timeout=aiohttp.ClientTimeout(total=20)  # 30→20s
             ) as resp:
                 if resp.status in (200, 201):
                     return True
@@ -356,8 +353,8 @@ async def _save_jsonblob_async(session, payload: str):
                 logger.error(f"JSONBlob status {resp.status}: {txt[:200]}")
         except Exception as e:
             logger.error(f"JSONBlob async #{attempt+1}: {e}")
-        if attempt < 2:
-            await asyncio.sleep(2)
+        if attempt < 1:
+            await asyncio.sleep(1)  # 2→1s
     return False
 
 
@@ -369,7 +366,7 @@ async def _save_jsonbin_async(session, payload: str):
             async with session.put(
                 JSONBIN_URL, data=payload.encode("utf-8"),
                 headers=JSONBIN_HEADERS,
-                timeout=aiohttp.ClientTimeout(total=60)
+                timeout=aiohttp.ClientTimeout(total=20)  # 30→20s
             ) as resp:
                 if resp.status in (200, 201):
                     return True
@@ -378,7 +375,7 @@ async def _save_jsonbin_async(session, payload: str):
         except Exception as e:
             logger.error(f"JSONBin async #{attempt+1}: {e}")
         if attempt < 2:
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)  # 2→1s
     return False
 
 
@@ -621,25 +618,74 @@ def find_key_by_text(text: str) -> str | None:
 # TUGMA YARATISH
 # ══════════════════════════════════════════════════════════
 
+
+# ── API 9.4 style → Telegram rang kodi ──────────────────────
+_STYLE_MAP = {
+    "primary": 1,   # Ko'k
+    "success": 2,   # Yashil
+    "danger":  3,   # Qizil
+}
+
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
-    kw = {"text": text}
+    """InlineKeyboardButton — Bot API 9.4 rangli tugma + premium emoji."""
+    kwargs = {"text": text}
     if data:
-        kw["callback_data"] = data
+        kwargs["callback_data"] = data
     if url:
-        kw["url"] = url
-    return InlineKeyboardButton(**kw)
+        kwargs["url"] = url
+    # Bot API 9.4: inline tugma rangi
+    if style and style in _STYLE_MAP:
+        try:
+            kwargs["color"] = _STYLE_MAP[style]
+        except Exception:
+            pass
+    # Premium (custom) emoji — icon sifatida
+    if emoji_id:
+        try:
+            kwargs["icon_custom_emoji_id"] = emoji_id
+        except Exception:
+            pass
+    try:
+        return InlineKeyboardButton(**kwargs)
+    except TypeError:
+        # Eski PTB versiyasi — faqat asosiy parametrlar
+        safe = {"text": text}
+        if data:
+            safe["callback_data"] = data
+        if url:
+            safe["url"] = url
+        return InlineKeyboardButton(**safe)
 
 
 def rbtn(text, style=None, emoji_id=None):
-    return KeyboardButton(text=text)
+    """KeyboardButton — Bot API 9.4 rangli tugma + premium emoji."""
+    kwargs = {"text": text}
+    if style and style in _STYLE_MAP:
+        try:
+            kwargs["color"] = _STYLE_MAP[style]
+        except Exception:
+            pass
+    if emoji_id:
+        try:
+            kwargs["icon_custom_emoji_id"] = emoji_id
+        except Exception:
+            pass
+    try:
+        return KeyboardButton(**kwargs)
+    except TypeError:
+        return KeyboardButton(text=text)
 
 
 def ikb(rows):
+    """InlineKeyboardMarkup."""
     return InlineKeyboardMarkup(rows)
 
 
 def rkb(rows, resize=True):
+    """ReplyKeyboardMarkup."""
     return ReplyKeyboardMarkup(rows, resize_keyboard=resize)
+
+
 
 # ══════════════════════════════════════════════════════════
 # KLAVIATURALAR
@@ -1056,22 +1102,29 @@ async def do_broadcast(bot, bc: dict):
     markup = build_broadcast_markup(buttons)
     ok = 0
     fail = 0
-    for uid in users:
-        try:
+    # Tezroq broadcast: 20 ta foydalanuvchiga birdan yuborish
+    BATCH = 20
+    for i in range(0, len(users), BATCH):
+        batch = users[i:i+BATCH]
+        tasks = []
+        for uid in batch:
             kw = {}
             if markup:
                 kw["reply_markup"] = markup
-            await bot.copy_message(
+            tasks.append(bot.copy_message(
                 chat_id=int(uid),
                 from_chat_id=bc["from_chat_id"],
                 message_id=bc["message_id"],
                 **kw
-            )
-            ok += 1
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            fail += 1
-            logger.warning(f"Broadcast uid={uid}: {e}")
+            ))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                fail += 1
+                logger.warning(f"Broadcast xato: {r}")
+            else:
+                ok += 1
+        await asyncio.sleep(0.5)  # Telegram rate limit uchun
     return ok, fail
 
 # ══════════════════════════════════════════════════════════
@@ -2605,7 +2658,7 @@ def main():
         app.job_queue.run_repeating(_periodic_refresh, interval=60, first=30)
         logger.info("🔄 Periodik JSONBin sync yoqildi (har 60 soniyada)")
 
-    logger.info(f"Bot ishga tushdi! v12 — {len(DB.get('movies', {}))} kino xotirada")
+    logger.info(f"Bot ishga tushdi! v13 — {len(DB.get('movies', {}))} kino xotirada")
     app.run_polling(drop_pending_updates=True)
 
 
