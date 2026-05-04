@@ -119,6 +119,15 @@ DEFAULT_DB = {
 
 EMOJI_IDS: dict = {}
 
+# ─── RAM / STORAGE HOLATI ──────────────────────────────────
+DB_STATUS: dict = {
+    "storage_ok": True,       # JSONBlob ishlayaptimi?
+    "fail_count": 0,          # Ketma-ket xatolar soni
+    "last_save_ok": None,     # Oxirgi muvaffaqiyatli saqlash vaqti
+    "last_err": None,         # Oxirgi xato xabari
+    "ram_only": False,        # True bo'lsa — faqat RAMdan ishlayapti
+}
+
 _sub_cache: dict[int, tuple[float, list]] = {}
 SUB_CACHE_TTL = 10
 
@@ -334,10 +343,20 @@ async def db_save_async(data: dict) -> bool:
     if NPOINT_URL:
         asyncio.create_task(asyncio.to_thread(_save_npoint_meta, data))
     n = len(data.get("movies", {}))
+    now_str = datetime.now().strftime("%H:%M:%S")
     if ok:
+        DB_STATUS["storage_ok"]   = True
+        DB_STATUS["fail_count"]   = 0
+        DB_STATUS["last_save_ok"] = now_str
+        DB_STATUS["ram_only"]     = False
         logger.info(f"✅ DB saqlandi — {n} kino")
     else:
-        logger.warning(f"⚠️ JSONBlob saqlanmadi, faqat lokal — {n} kino")
+        DB_STATUS["fail_count"] = DB_STATUS.get("fail_count", 0) + 1
+        DB_STATUS["last_err"]   = now_str
+        if DB_STATUS["fail_count"] >= 2:
+            DB_STATUS["storage_ok"] = False
+            DB_STATUS["ram_only"]   = True
+        logger.warning(f"⚠️ JSONBlob saqlanmadi ({DB_STATUS['fail_count']}x), faqat RAM — {n} kino")
     return ok
 
 
@@ -1104,10 +1123,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u = len(DB.get("users", {}))
         m = len(DB.get("movies", {}))
         v = DB.get("stats", {}).get("total_views", 0)
+        if DB_STATUS["ram_only"]:
+            storage_line = (
+                f"\n\n🔴 <b>Storage: RAM ONLY</b>\n"
+                f"JSONBlob ishlamayapti! Xato: <b>{DB_STATUS['fail_count']}</b>x\n"
+                f"<code>{DB_STATUS.get('last_err', '—')}</code>"
+            )
+        elif DB_STATUS["last_save_ok"]:
+            storage_line = f"\n\n🟢 Storage OK | {DB_STATUS['last_save_ok']}"
+        else:
+            storage_line = "\n\n🟡 Storage tekshirilmagan"
         try:
             await q.edit_message_text(
                 f"<b>Statistika</b>\n\nFoydalanuvchilar: <b>{u}</b>\n"
-                f"Kinolar: <b>{m}</b>\nJami ko'rishlar: <b>{v}</b>",
+                f"Kinolar: <b>{m}</b>\nJami ko'rishlar: <b>{v}</b>{storage_line}",
                 parse_mode="HTML", reply_markup=stats_kb())
         except Exception:
             pass
@@ -1146,7 +1175,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         DB["btn_texts"] = {}
         DB["emoji_ids"] = {}
         EMOJI_IDS.clear()
-        asyncio.create_task(save_now())
+        await save_now()
         try:
             await q.edit_message_text("✅ Barcha tugmalar tiklandi!")
         except Exception:
@@ -1163,7 +1192,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         DB.get("btn_texts", {}).pop(key, None)
         DB.get("emoji_ids", {}).pop(key, None)
         EMOJI_IDS.pop(key, None)
-        asyncio.create_task(save_now())
+        await save_now()
         default = DEFAULT_BTN.get(key, "")
         context.user_data.pop("editing_btn_key", None)
         context.user_data["emoji_menu"] = True
@@ -1544,7 +1573,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             eid_info = ""
 
         DB.setdefault("btn_texts", {})[key] = new_text
-        asyncio.create_task(save_now())
+        await save_now()
 
         eid = get_eid(key)
         if eid:
@@ -1588,7 +1617,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             DB["btn_texts"] = {}
             DB["emoji_ids"] = {}
             EMOJI_IDS.clear()
-            asyncio.create_task(save_now())
+            await save_now()
             await sm(context.bot, uid, "✅ Barcha tugmalar tiklandi!", emoji_menu_kb())
             return
         key = find_key_by_text(text)
@@ -1811,9 +1840,24 @@ async def admin_buttons(update, context, text: str):
         u = len(DB.get("users", {}))
         m = len(DB.get("movies", {}))
         v = DB.get("stats", {}).get("total_views", 0)
+        # Storage holati
+        if DB_STATUS["ram_only"]:
+            storage_line = (
+                f"\n\n🔴 <b>Storage holati: RAM ONLY</b>\n"
+                f"⚠️ JSONBlob ishlamayapti! Bot faqat RAMdan ishlayapti.\n"
+                f"Xatolar soni: <b>{DB_STATUS['fail_count']}</b>\n"
+                f"Oxirgi xato: <code>{DB_STATUS.get('last_err', '—')}</code>"
+            )
+        elif DB_STATUS["last_save_ok"]:
+            storage_line = (
+                f"\n\n🟢 <b>Storage holati: OK</b>\n"
+                f"Oxirgi saqlash: <code>{DB_STATUS['last_save_ok']}</code>"
+            )
+        else:
+            storage_line = "\n\n🟡 <b>Storage holati: Tekshirilmagan</b>"
         await sm(context.bot, uid,
             f"<b>Statistika</b>\n\nFoydalanuvchilar: <b>{u}</b>\n"
-            f"Kinolar: <b>{m}</b>\nJami ko'rishlar: <b>{v}</b>", stats_kb())
+            f"Kinolar: <b>{m}</b>\nJami ko'rishlar: <b>{v}</b>{storage_line}", stats_kb())
         return
 
     if text == bt("karta"):
@@ -1968,23 +2012,25 @@ async def admin_state_handler(update, context, text: str) -> bool:
 
         if val == "kino":
             del DB["movies"][code]
-            asyncio.create_task(save_now())
+            save_ok = await db_save_async(DB)
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
+            storage_warn = "\n⚠️ <i>Faqat RAMda saqlandi, storage ishlamayapti!</i>" if not save_ok else ""
             await sm(context.bot, uid,
                 f"✅ <b>{title}</b> (<code>{code}</code>) butunlay o'chirildi!\n"
-                f"Qolgan kinolar: <b>{len(DB['movies'])} ta</b>",
+                f"Qolgan kinolar: <b>{len(DB['movies'])} ta</b>{storage_warn}",
                 admin_menu_kb())
             return True
 
         if val == "hammasi":
             DB["movies"][code]["episodes"] = []
             DB["movies"][code]["prices"]   = {}
-            asyncio.create_task(save_now())
+            save_ok = await db_save_async(DB)
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
+            storage_warn = "\n⚠️ <i>Faqat RAMda saqlandi, storage ishlamayapti!</i>" if not save_ok else ""
             await sm(context.bot, uid,
-                f"✅ <b>{title}</b> kinoning barcha qismlari o'chirildi!",
+                f"✅ <b>{title}</b> kinoning barcha qismlari o'chirildi!{storage_warn}",
                 admin_menu_kb())
             return True
 
@@ -2008,12 +2054,13 @@ async def admin_state_handler(update, context, text: str) -> bool:
                 except Exception:
                     pass
             DB["movies"][code]["prices"] = new_prices
-            asyncio.create_task(save_now())
+            save_ok = await db_save_async(DB)
             context.user_data.pop("admin_state", None)
             context.user_data.pop("del_movie_code", None)
+            storage_warn = "\n⚠️ <i>Faqat RAMda saqlandi!</i>" if not save_ok else ""
             await sm(context.bot, uid,
                 f"✅ <b>{title}</b> — <b>{ep_num}-qism</b> o'chirildi!\n"
-                f"Qolgan qismlar: <b>{len(DB['movies'][code]['episodes'])} ta</b>",
+                f"Qolgan qismlar: <b>{len(DB['movies'][code]['episodes'])} ta</b>{storage_warn}",
                 admin_menu_kb())
             return True
 
@@ -2023,7 +2070,7 @@ async def admin_state_handler(update, context, text: str) -> bool:
 
     if state == "set_card":
         DB["card_number"] = text
-        asyncio.create_task(save_now())
+        await save_now()
         context.user_data.pop("admin_state", None)
         await sm(context.bot, uid, f"✅ Karta saqlandi: <code>{text}</code>", admin_menu_kb())
         return True
@@ -2085,7 +2132,7 @@ async def admin_state_handler(update, context, text: str) -> bool:
             "added_date": now,
             "poster_file_id": None,
         }
-        asyncio.create_task(save_now())
+        await save_now()
 
         context.user_data["admin_state"] = "add_movie_poster"
         context.user_data["poster_code"] = code
@@ -2252,13 +2299,13 @@ async def admin_state_handler(update, context, text: str) -> bool:
         context.user_data.pop("price_ep", None)
         if amount == "0":
             DB["movies"][code].setdefault("prices", {}).pop(ep, None)
-            asyncio.create_task(save_now())
+            await save_now()
             await sm(context.bot, uid,
                 f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> endi <b>bepul</b>!",
                 admin_menu_kb())
         else:
             DB["movies"][code].setdefault("prices", {})[ep] = amount
-            asyncio.create_task(save_now())
+            await save_now()
             await sm(context.bot, uid,
                 f"✅ <b>{movie_title}</b> — <b>{ep}-qism</b> narxi: <b>{amount} so'm</b>",
                 admin_menu_kb())
@@ -2315,7 +2362,7 @@ async def admin_state_handler(update, context, text: str) -> bool:
         channel_info["title"] = title
         channel_info["url"]   = channel_join_url(channel_info.get("username", ""), channel_info.get("url", ""))
         DB["channels"].append(channel_info)
-        asyncio.create_task(save_now())
+        await save_now()
         context.user_data.pop("admin_state", None)
         context.user_data["channel_manage_menu"] = True
         await sm(context.bot, uid,
@@ -2429,7 +2476,7 @@ async def sticker_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     DB.setdefault("btn_texts", {})[key] = new_text
     EMOJI_IDS.pop(key, None)
     DB.get("emoji_ids", {}).pop(key, None)
-    asyncio.create_task(save_now())
+    await save_now()
     await sm(context.bot, uid,
         f"✅ <b>{BTN_LABELS.get(key, key)}</b> yangilandi!\nKo'rinish: <code>{new_text}</code>")
     context.user_data["emoji_menu"] = True
@@ -2465,7 +2512,7 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("new_movie_code", None)
         if msg.photo and code and code in DB["movies"]:
             DB["movies"][code]["poster_file_id"] = msg.photo[-1].file_id
-            asyncio.create_task(save_now())
+            await save_now()
             await sm(context.bot, uid,
                 f"✅ Poster saqlandi!\nKod: <code>{code}</code>",
                 movie_added_kb(code))
@@ -2515,12 +2562,12 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if uid == ADMIN_ID and state == "set_install":
         if msg.video:
             DB["settings"]["install_video_id"] = msg.video.file_id
-            asyncio.create_task(save_now())
+            await save_now()
             context.user_data.pop("admin_state", None)
             await sm(context.bot, uid, "✅ O'rnatish videosi saqlandi!", admin_menu_kb())
         elif msg.document:
             DB["settings"]["install_file_id"] = msg.document.file_id
-            asyncio.create_task(save_now())
+            await save_now()
             context.user_data.pop("admin_state", None)
             await sm(context.bot, uid, "✅ O'rnatish fayli saqlandi!", admin_menu_kb())
         else:
@@ -2600,10 +2647,47 @@ def main():
         try:
             DB["emoji_ids"] = dict(EMOJI_IDS)
             _save_local(DB)
+            was_down = DB_STATUS.get("ram_only", False)
             ok = await asyncio.to_thread(_save_jsonblob, DB)
-            status = "✅" if ok else "⚠️"
+            now_str = datetime.now().strftime("%H:%M:%S")
+            if ok:
+                DB_STATUS["storage_ok"]   = True
+                DB_STATUS["fail_count"]   = 0
+                DB_STATUS["last_save_ok"] = now_str
+                if was_down:
+                    DB_STATUS["ram_only"] = False
+                    # Admin ga xabar ber
+                    try:
+                        await context_job.bot.send_message(
+                            ADMIN_ID,
+                            f"✅ <b>Storage tiklandi!</b>\n"
+                            f"JSONBlob yana ishlayapti — {now_str}\n"
+                            f"RAMdagi {len(DB.get('movies', {}))} kino saqlandi.",
+                            parse_mode="HTML")
+                    except Exception:
+                        pass
+                status = "✅"
+            else:
+                DB_STATUS["fail_count"] = DB_STATUS.get("fail_count", 0) + 1
+                DB_STATUS["last_err"]   = now_str
+                if DB_STATUS["fail_count"] >= 2:
+                    DB_STATUS["storage_ok"] = False
+                    DB_STATUS["ram_only"]   = True
+                # Faqat birinchi marta xato bo'lganda admin ga xabar
+                if DB_STATUS["fail_count"] == 2:
+                    try:
+                        await context_job.bot.send_message(
+                            ADMIN_ID,
+                            f"⚠️ <b>Storage ishlamayapti!</b>\n"
+                            f"JSONBlob ulanmadi — {now_str}\n"
+                            f"Bot hozir faqat RAMdan ishlayapti.\n"
+                            f"Ma'lumotlar yo'qolmaydi (lokal backup bor).",
+                            parse_mode="HTML")
+                    except Exception:
+                        pass
+                status = "⚠️"
             logger.info(f"{status} Periodik sync: {len(DB.get('movies', {}))} kino, "
-                       f"{len(DB.get('users', {}))} user")
+                       f"{len(DB.get('users', {}))} user | RAM_ONLY={DB_STATUS['ram_only']}")
         except Exception as e:
             logger.error(f"Periodik sync xato: {e}")
 
@@ -2613,6 +2697,39 @@ def main():
 
     logger.info(f"🚀 Bot v17 ishga tushdi! — {len(DB.get('movies', {}))} kino, "
                 f"{len(DB.get('users', {}))} foydalanuvchi")
+
+    async def _startup_notify(context_job):
+        """Bot ishga tushganda adminga storage holati haqida xabar"""
+        try:
+            movies_n = len(DB.get("movies", {}))
+            users_n  = len(DB.get("users", {}))
+            # Storage test
+            ok = await asyncio.to_thread(_save_jsonblob, DB)
+            now_str = datetime.now().strftime("%H:%M:%S")
+            if ok:
+                DB_STATUS["storage_ok"]   = True
+                DB_STATUS["last_save_ok"] = now_str
+                DB_STATUS["ram_only"]     = False
+                storage_msg = f"🟢 JSONBlob ishlayapti — {now_str}"
+            else:
+                DB_STATUS["storage_ok"] = False
+                DB_STATUS["ram_only"]   = True
+                DB_STATUS["last_err"]   = now_str
+                storage_msg = f"🔴 JSONBlob ishlamayapti! Bot RAMdan ishlaydi."
+            await context_job.bot.send_message(
+                ADMIN_ID,
+                f"🚀 <b>Bot ishga tushdi!</b>\n\n"
+                f"📦 RAM da: <b>{movies_n}</b> kino, <b>{users_n}</b> user\n"
+                f"💾 Storage: {storage_msg}",
+                parse_mode="HTML")
+        except Exception as e:
+            logger.warning(f"Startup notify xato: {e}")
+
+    if app.job_queue:
+        app.job_queue.run_once(_startup_notify, when=5)
+        app.job_queue.run_repeating(_periodic_sync, interval=300, first=60)
+        logger.info("🔄 Periodik sync yoqildi (har 5 daqiqada → JSONBlob)")
+
     app.run_polling(drop_pending_updates=True)
 
 
