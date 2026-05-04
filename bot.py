@@ -16,10 +16,7 @@ import logging, asyncio, json, time, re, os, threading, copy
 from datetime import datetime
 import requests
 import aiohttp
-from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters,
@@ -605,42 +602,27 @@ def find_key_by_text(text: str) -> str | None:
 # ══════════════════════════════════════════════════════════
 
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
-    """Inline tugma. style va emoji_id Telegram API da yo'q — e'tiborsiz qoldiriladi.
-    Premium emoji tugma matniga oddiy emoji prefiks orqali kiritiladi."""
-    kwargs = {"text": str(text)}
-    if data:
-        kwargs["callback_data"] = str(data)
-    elif url:
-        kwargs["url"] = str(url)
-    else:
-        kwargs["callback_data"] = "noop"
-    return InlineKeyboardButton(**kwargs)
+    b = {"text": text}
+    if data:     b["callback_data"] = data
+    if url:      b["url"] = url
+    if style:    b["style"] = style
+    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
+    return b
 
 
 def rbtn(text, style=None, emoji_id=None):
-    """Reply tugma. style va emoji_id Telegram API da yo'q — matn ichidagi emoji ishlatiladi."""
-    return KeyboardButton(text=str(text))
+    b = {"text": text}
+    if style:    b["style"] = style
+    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
+    return b
 
 
 def ikb(rows):
-    """Faqat to'liq tugmalar bilan to'ldirilgan qatorlarni qoldiramiz."""
-    clean = []
-    for row in rows:
-        if not row:
-            continue
-        clean.append([b for b in row if b is not None])
-    clean = [r for r in clean if r]
-    return InlineKeyboardMarkup(clean)
+    return {"inline_keyboard": rows}
 
 
 def rkb(rows, resize=True):
-    clean = []
-    for row in rows:
-        if not row:
-            continue
-        clean.append([b for b in row if b is not None])
-    clean = [r for r in clean if r]
-    return ReplyKeyboardMarkup(clean, resize_keyboard=resize)
+    return {"keyboard": rows, "resize_keyboard": resize}
 
 # ══════════════════════════════════════════════════════════
 # KLAVIATURALAR
