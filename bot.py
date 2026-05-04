@@ -33,9 +33,7 @@ ADMIN_ID  = int(os.environ.get("ADMIN_ID", "8537782289"))
 # publishable/anon kalit RLS sababli yozolmaydi — eski kalit shu sabab ishlamasdi.
 # Yangi kalitni Supabase Dashboard → Project Settings → API → "service_role" dan oling.
 SUPABASE_URL    =  "https://ccnthdzllhdcjpzmehqa.supabase.co")
-SUPABASE_KEY    =  "sb_secret_sM4Q04HoRdjJCZ0mhse4jw_tEa96jdy",
-    # >>> BU YERGA "service_role" kalitingizni qo'ying <<<
-    "PUT_YOUR_SUPABASE_SERVICE_ROLE_KEY_HERE"
+SUPABASE_KEY    =  "sb_secret_sM4Q04HoRdjJCZ0mhse4jw_tEa96jdy"
 )
 SUPABASE_TABLE  = "bot_storage"
 SUPABASE_ROW_ID = 1
