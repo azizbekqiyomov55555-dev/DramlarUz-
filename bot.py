@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v13 (API 9.4 + Premium Emoji + Tezlashtirilgan)
-TUZATISHLAR (v13):
-1. Bot API 9.4 — InlineKeyboardButton va KeyboardButton style parametri to'g'ri uzatiladi
-2. Premium (custom) emoji — tugmalarga icon_custom_emoji_id qo'shildi
-3. Rangli tugmalar — barcha tugmalar rang bilan chiqadi
-4. Kino/JSONBin saqlash tezlashtirildi — parallel async saqlash, retry kamaytirildi
-5. Broadcast tezlashtirildi — asyncio.sleep 0.05→0.03, parallel yuborish
-6. Periodik sync 60s da ishlaydi, dead-lock yo'qotildi
+Kino Bot - v10
+TUZATISHLAR (v9):
+1. Majburiy kanal to'liq ishlaydi:
+   - Kanal qo'shish (format tekshiriladi)
+   - Kanal o'chirish (ro'yxatdan tanlash)
+   - Kanallar ro'yxatini ko'rish
+2. admin_buttons da maj_kanal uchun submenu qo'shildi
+AVVALGI (v8):
+3. Pullik qilish to'liq ishlaydi
+4. Qismlar sahifalar bo'yicha ko'rsatiladi
+5. Broadcast, emoji sozlamalari
 """
 import logging, asyncio, json, time, re, os, threading, copy
 from datetime import datetime
 import requests
 import aiohttp
-from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    KeyboardButton, ReplyKeyboardMarkup,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters,
@@ -44,6 +44,9 @@ JSONBLOB_HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json",
 }
+
+# ─── npoint.io — TEZKOR O'QISH zaxirasi (read-only) ───────
+NPOINT_URL = os.environ.get("NPOINT_URL") or "https://api.npoint.io/b71e7771e2b5d253346c"
 
 # Lokal backup fayl — ikkala onlayn baza ham ishlamasa ham ma'lumot saqlanadi
 LOCAL_BACKUP_FILE = "db_backup.json"
@@ -183,15 +186,42 @@ def _load_from_jsonblob():
     return None
 
 
+def _load_from_npoint():
+    """npoint.io'dan TEZKOR o'qish (read-only zaxira).
+    JSONBin sekin yoki ishlamasa kinolarni tez yuklash uchun."""
+    if not NPOINT_URL:
+        return None
+    for attempt in range(3):
+        try:
+            r = requests.get(NPOINT_URL, timeout=15)
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                except Exception:
+                    data = {}
+                if isinstance(data, dict) and _has_real_content(data):
+                    logger.info("✅ npoint.io'dan kinolar yuklandi")
+                    return _normalize_db(data)
+                elif isinstance(data, dict):
+                    return _normalize_db(data)
+            else:
+                logger.error(f"npoint load status {r.status_code}")
+        except Exception as e:
+            logger.error(f"npoint load #{attempt+1}: {e}")
+            if attempt < 2:
+                time.sleep(1)
+    return None
+
+
 def _load_from_jsonbin():
     """JSONBin.io'dan TO'LIQ yuklash. Muvaffaqiyatli bo'lsa dict, aks holda None.
     Bot start'da hamma kino/emoji DBga olinadi, keyin qidiruv faqat xotiradan ishlaydi."""
     if not JSONBIN_LATEST or not JSONBIN_API_KEY:
         logger.warning("JSONBIN_API_KEY yoki JSONBIN_BIN_ID kiritilmagan — JSONBin o'tkazib yuborildi")
         return None
-    for attempt in range(5):  # 8→5: tezroq
+    for attempt in range(8):
         try:
-            r = requests.get(JSONBIN_LATEST, headers=JSONBIN_HEADERS, timeout=15)  # 30→15s
+            r = requests.get(JSONBIN_LATEST, headers=JSONBIN_HEADERS, timeout=30)
             if r.status_code == 200:
                 try:
                     body = r.json()
@@ -209,8 +239,8 @@ def _load_from_jsonbin():
                 logger.error(f"JSONBin load status {r.status_code}: {r.text[:200]}")
         except Exception as e:
             logger.error(f"JSONBin load #{attempt+1}: {e}")
-        if attempt < 4:
-            time.sleep(min(5, 1 + attempt))  # tezroq retry
+        if attempt < 7:
+            time.sleep(min(10, 2 + attempt))  # startda to'liq yuklash uchun retry
     return None
 
 
@@ -245,6 +275,7 @@ def db_load():
     # 1-bosqich: HAQIQIY ma'lumotli manbani topish (tartibli)
     sources = [
         ("JSONBin",      _load_from_jsonbin),
+        ("npoint.io",    _load_from_npoint),
         ("JSONBlob",     _load_from_jsonblob),
         ("Lokal backup", _load_from_local),
     ]
@@ -340,12 +371,12 @@ def _save_jsonbin_sync(payload: str):
 async def _save_jsonblob_async(session, payload: str):
     if not JSONBLOB_URL:
         return False
-    for attempt in range(2):  # 3→2 retry
+    for attempt in range(3):
         try:
             async with session.put(
                 JSONBLOB_URL, data=payload.encode("utf-8"),
                 headers=JSONBLOB_HEADERS,
-                timeout=aiohttp.ClientTimeout(total=20)  # 30→20s
+                timeout=aiohttp.ClientTimeout(total=30)
             ) as resp:
                 if resp.status in (200, 201):
                     return True
@@ -353,8 +384,8 @@ async def _save_jsonblob_async(session, payload: str):
                 logger.error(f"JSONBlob status {resp.status}: {txt[:200]}")
         except Exception as e:
             logger.error(f"JSONBlob async #{attempt+1}: {e}")
-        if attempt < 1:
-            await asyncio.sleep(1)  # 2→1s
+        if attempt < 2:
+            await asyncio.sleep(2)
     return False
 
 
@@ -366,7 +397,7 @@ async def _save_jsonbin_async(session, payload: str):
             async with session.put(
                 JSONBIN_URL, data=payload.encode("utf-8"),
                 headers=JSONBIN_HEADERS,
-                timeout=aiohttp.ClientTimeout(total=20)  # 30→20s
+                timeout=aiohttp.ClientTimeout(total=30)
             ) as resp:
                 if resp.status in (200, 201):
                     return True
@@ -375,7 +406,7 @@ async def _save_jsonbin_async(session, payload: str):
         except Exception as e:
             logger.error(f"JSONBin async #{attempt+1}: {e}")
         if attempt < 2:
-            await asyncio.sleep(1)  # 2→1s
+            await asyncio.sleep(2)
     return False
 
 
@@ -618,74 +649,28 @@ def find_key_by_text(text: str) -> str | None:
 # TUGMA YARATISH
 # ══════════════════════════════════════════════════════════
 
-
-# ── API 9.4 style → Telegram rang kodi ──────────────────────
-_STYLE_MAP = {
-    "primary": 1,   # Ko'k
-    "success": 2,   # Yashil
-    "danger":  3,   # Qizil
-}
-
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
-    """InlineKeyboardButton — Bot API 9.4 rangli tugma + premium emoji."""
-    kwargs = {"text": text}
-    if data:
-        kwargs["callback_data"] = data
-    if url:
-        kwargs["url"] = url
-    # Bot API 9.4: inline tugma rangi
-    if style and style in _STYLE_MAP:
-        try:
-            kwargs["color"] = _STYLE_MAP[style]
-        except Exception:
-            pass
-    # Premium (custom) emoji — icon sifatida
-    if emoji_id:
-        try:
-            kwargs["icon_custom_emoji_id"] = emoji_id
-        except Exception:
-            pass
-    try:
-        return InlineKeyboardButton(**kwargs)
-    except TypeError:
-        # Eski PTB versiyasi — faqat asosiy parametrlar
-        safe = {"text": text}
-        if data:
-            safe["callback_data"] = data
-        if url:
-            safe["url"] = url
-        return InlineKeyboardButton(**safe)
+    b = {"text": text}
+    if data:     b["callback_data"] = data
+    if url:      b["url"] = url
+    if style:    b["style"] = style
+    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
+    return b
 
 
 def rbtn(text, style=None, emoji_id=None):
-    """KeyboardButton — Bot API 9.4 rangli tugma + premium emoji."""
-    kwargs = {"text": text}
-    if style and style in _STYLE_MAP:
-        try:
-            kwargs["color"] = _STYLE_MAP[style]
-        except Exception:
-            pass
-    if emoji_id:
-        try:
-            kwargs["icon_custom_emoji_id"] = emoji_id
-        except Exception:
-            pass
-    try:
-        return KeyboardButton(**kwargs)
-    except TypeError:
-        return KeyboardButton(text=text)
+    b = {"text": text}
+    if style:    b["style"] = style
+    if emoji_id: b["icon_custom_emoji_id"] = emoji_id
+    return b
 
 
 def ikb(rows):
-    """InlineKeyboardMarkup."""
-    return InlineKeyboardMarkup(rows)
+    return {"inline_keyboard": rows}
 
 
 def rkb(rows, resize=True):
-    """ReplyKeyboardMarkup."""
-    return ReplyKeyboardMarkup(rows, resize_keyboard=resize)
-
-
+    return {"keyboard": rows, "resize_keyboard": resize}
 
 # ══════════════════════════════════════════════════════════
 # KLAVIATURALAR
@@ -1102,29 +1087,22 @@ async def do_broadcast(bot, bc: dict):
     markup = build_broadcast_markup(buttons)
     ok = 0
     fail = 0
-    # Tezroq broadcast: 20 ta foydalanuvchiga birdan yuborish
-    BATCH = 20
-    for i in range(0, len(users), BATCH):
-        batch = users[i:i+BATCH]
-        tasks = []
-        for uid in batch:
+    for uid in users:
+        try:
             kw = {}
             if markup:
                 kw["reply_markup"] = markup
-            tasks.append(bot.copy_message(
+            await bot.copy_message(
                 chat_id=int(uid),
                 from_chat_id=bc["from_chat_id"],
                 message_id=bc["message_id"],
                 **kw
-            ))
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for r in results:
-            if isinstance(r, Exception):
-                fail += 1
-                logger.warning(f"Broadcast xato: {r}")
-            else:
-                ok += 1
-        await asyncio.sleep(0.5)  # Telegram rate limit uchun
+            )
+            ok += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            fail += 1
+            logger.warning(f"Broadcast uid={uid}: {e}")
     return ok, fail
 
 # ══════════════════════════════════════════════════════════
@@ -2623,6 +2601,10 @@ def main():
             # MUHIM: lokal'da bor bo'lgan kalitlarni JSONBin'dagi eski qiymatlar
             # bilan ALMASHTIRMAYMIZ (faqat yangi kalitlar qo'shiladi).
             fresh = await asyncio.to_thread(_load_from_jsonbin)
+            # JSONBin sekin yoki ishlamasa — npoint.io'dan tezkor fallback
+            if fresh is None or not _has_real_content(fresh):
+                logger.info("🔁 JSONBin bo'sh — npoint.io'dan kinolar olinmoqda...")
+                fresh = await asyncio.to_thread(_load_from_npoint)
             if fresh is None or not _has_real_content(fresh):
                 return
 
@@ -2658,7 +2640,7 @@ def main():
         app.job_queue.run_repeating(_periodic_refresh, interval=60, first=30)
         logger.info("🔄 Periodik JSONBin sync yoqildi (har 60 soniyada)")
 
-    logger.info(f"Bot ishga tushdi! v13 — {len(DB.get('movies', {}))} kino xotirada")
+    logger.info(f"Bot ishga tushdi! v12 — {len(DB.get('movies', {}))} kino xotirada")
     app.run_polling(drop_pending_updates=True)
 
 
