@@ -1,25 +1,29 @@
 # -*- coding: utf-8 -*-
 """
-Kino Bot - v14
-TUZATISHLAR (v14 - PTB 9.4 moslik):
-1. PTB 9.4: InlineKeyboardButton/KeyboardButton to'g'ri ishlatildi
-2. bot.get_me() keshi qo'shildi — tezlik oshdi
-3. save_fast() muammosi tuzatildi
-4. Emoji tugmalar to'g'ri ishlaydi
-5. Kino saqlash ishonchli qilindi
+Kino Bot - v10
+TUZATISHLAR (v9):
+1. Majburiy kanal to'liq ishlaydi:
+   - Kanal qo'shish (format tekshiriladi)
+   - Kanal o'chirish (ro'yxatdan tanlash)
+   - Kanallar ro'yxatini ko'rish
+2. admin_buttons da maj_kanal uchun submenu qo'shildi
+AVVALGI (v8):
+3. Pullik qilish to'liq ishlaydi
+4. Qismlar sahifalar bo'yicha ko'rsatiladi
+5. Broadcast, emoji sozlamalari
 """
-import logging, asyncio, json, time, re, os, threading, html
+import logging, asyncio, json, time, re, os, threading, copy
 from datetime import datetime
 import requests
 import aiohttp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup,
+    ReplyKeyboardMarkup, KeyboardButton,
+)
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters,
 )
-
-# Bot ma'lumotlarini keshlash (bot.get_me() har safar chaqirilmasin)
-_BOT_ME_CACHE = None
 
 # ─── KONFIGURATSIYA (kod ichida) ───────────────────────────
 BOT_TOKEN = os.environ.get("BOT_TOKEN") or "8723400610:AAFaZvlfLYvhZaRsyUuuyGOlWQ0vwjzAA8Y"
@@ -141,75 +145,6 @@ DEFAULT_DB = {
 }
 
 EMOJI_IDS: dict = {}
-MOVIE_SEARCH_INDEX = []
-_MOVIE_SEARCH_INDEX_SIZE = -1
-_refresh_in_progress = False
-_background_save_task = None
-
-
-def _strip_markup_text(value: str) -> str:
-    text = str(value or "")
-    text = re.sub(r"<tg-emoji\b[^>]*>(.*?)</tg-emoji>", r"\1", text, flags=re.IGNORECASE | re.DOTALL)
-    text = re.sub(r"<[^>]+>", " ", text)
-    return html.unescape(text).strip()
-
-
-def _rebuild_movie_search_index():
-    global MOVIE_SEARCH_INDEX, _MOVIE_SEARCH_INDEX_SIZE
-    movies = DB.get("movies", {}) or {}
-    index = []
-    for code, movie in movies.items():
-        title = movie.get("title", code) if isinstance(movie, dict) else code
-        index.append({
-            "code": code,
-            "code_norm": _norm_search_text(code),
-            "title_norm": _norm_search_text(_strip_markup_text(title)),
-        })
-    MOVIE_SEARCH_INDEX = index
-    _MOVIE_SEARCH_INDEX_SIZE = len(movies)
-
-
-def _ensure_movie_search_index():
-    movies = DB.get("movies", {}) or {}
-    if _MOVIE_SEARCH_INDEX_SIZE != len(movies):
-        _rebuild_movie_search_index()
-
-
-def _merge_movie_record(local_movie, remote_movie):
-    if not isinstance(remote_movie, dict):
-        return False
-    if not isinstance(local_movie, dict):
-        return True
-
-    changed = False
-
-    for key in ("title", "poster_file_id", "added_date"):
-        remote_value = remote_movie.get(key)
-        if remote_value and not local_movie.get(key):
-            local_movie[key] = remote_value
-            changed = True
-
-    local_eps = local_movie.setdefault("episodes", [])
-    remote_eps = remote_movie.get("episodes", []) or []
-    if len(remote_eps) > len(local_eps):
-        local_eps.extend(remote_eps[len(local_eps):])
-        changed = True
-
-    local_prices = local_movie.setdefault("prices", {})
-    for ep, price in (remote_movie.get("prices", {}) or {}).items():
-        if ep not in local_prices:
-            local_prices[ep] = price
-            changed = True
-
-    remote_views = remote_movie.get("views", {}) or {}
-    if remote_views:
-        local_views = local_movie.setdefault("views", {})
-        for ep, views in remote_views.items():
-            if ep not in local_views or views > local_views.get(ep, 0):
-                local_views[ep] = views
-                changed = True
-
-    return changed
 
 # ══════════════════════════════════════════════════════════
 # DB
@@ -331,8 +266,6 @@ def db_load():
                         f"{len(data.get('users', {}))} user, "
                         f"{len(data.get('movies', {}))} kino, "
                         f"{len(EMOJI_IDS)} emoji")
-            globals()["DB"] = data
-            _rebuild_movie_search_index()
             return data
 
     # 2-bosqich: JSONBin javob berdi-yu, lekin bo'sh ekan
@@ -347,8 +280,6 @@ def db_load():
             logger.error(f"Backup yozishda xato: {e}")
         _load_ok = True
         logger.info("✅ JSONBin'dan bo'sh DB yuklandi (haqiqatan bo'sh bin)")
-        globals()["DB"] = bin_data
-        _rebuild_movie_search_index()
         return bin_data
 
     # 3-bosqich: HECH BIR manba ishlamadi — bo'sh DB bilan boshlaymiz,
@@ -357,10 +288,7 @@ def db_load():
     logger.warning("⚠️ Hech bir manbadan yuklab bo'lmadi — bo'sh DB bilan boshlaymiz.")
     logger.warning("⚠️ Yangi ma'lumotlar lokalga yoziladi va JSONBin tiklanganda sinxronlanadi.")
     _load_ok = True  # ← MUHIM TUZATISH: saqlashga ruxsat beramiz
-    data = json.loads(json.dumps(DEFAULT_DB))
-    globals()["DB"] = data
-    _rebuild_movie_search_index()
-    return data
+    return json.loads(json.dumps(DEFAULT_DB))
 
 
 # ─── Saqlash yordamchilari ─────────────────────────────────
@@ -420,7 +348,7 @@ async def _save_jsonblob_async(session, payload: str):
             async with session.put(
                 JSONBLOB_URL, data=payload.encode("utf-8"),
                 headers=JSONBLOB_HEADERS,
-                timeout=aiohttp.ClientTimeout(total=30)
+                timeout=aiohttp.ClientTimeout(total=60)
             ) as resp:
                 if resp.status in (200, 201):
                     return True
@@ -441,7 +369,7 @@ async def _save_jsonbin_async(session, payload: str):
             async with session.put(
                 JSONBIN_URL, data=payload.encode("utf-8"),
                 headers=JSONBIN_HEADERS,
-                timeout=aiohttp.ClientTimeout(total=30)
+                timeout=aiohttp.ClientTimeout(total=60)
             ) as resp:
                 if resp.status in (200, 201):
                     return True
@@ -528,26 +456,17 @@ DB = db_load()
 
 
 def save():
-    """Fon saqlash: darhol lokalga yozadi, JSONBin fonda yuboriladi."""
-    global _background_save_task
+    """Fon saqlash: oddiy holatlar uchun. Muhim admin o'zgarishlarida save_now() ishlating."""
     try:
         loop = asyncio.get_running_loop()
         DB["emoji_ids"] = dict(EMOJI_IDS)
         _save_local(json.dumps(DB, ensure_ascii=False))
-        if _background_save_task and not _background_save_task.done():
-            # Avvalgi task hali tugamagan — yangi task yaratmaymiz,
-            # lekin lokal allaqachon yangilangan
-            return
         task = loop.create_task(db_save_async(DB))
-        _background_save_task = task
         def _done(t):
-            global _background_save_task
             try:
                 t.result()
             except Exception as e:
                 logger.error(f"save() task xato: {e}")
-            finally:
-                _background_save_task = None
         task.add_done_callback(_done)
     except RuntimeError:
         db_save(DB)
@@ -558,42 +477,8 @@ async def save_now():
     return await db_save_async(DB)
 
 
-async def save_fast():
-    """Tez javob berish: lokalga darhol yozadi, remote fonda ketadi.
-    TUZATISH: save() ni to'g'ri chaqiradi."""
-    DB["emoji_ids"] = dict(EMOJI_IDS)
-    _save_local(json.dumps(DB, ensure_ascii=False))
-    # Remote saqlashni fon rejimida yuborish
-    global _background_save_task
-    try:
-        loop = asyncio.get_running_loop()
-        if not (_background_save_task and not _background_save_task.done()):
-            task = loop.create_task(db_save_async(DB))
-            _background_save_task = task
-            def _done(t):
-                global _background_save_task
-                try:
-                    t.result()
-                except Exception as e:
-                    logger.error(f"save_fast() task xato: {e}")
-                finally:
-                    _background_save_task = None
-            task.add_done_callback(_done)
-    except Exception as e:
-        logger.error(f"save_fast loop xato: {e}")
-    return True
-
-
 def save_sync():
     db_save(DB)
-
-
-async def get_bot_me(bot):
-    """bot.get_me() ni keshlaydi — har safar API chaqirilmaydi (tezlik oshadi)."""
-    global _BOT_ME_CACHE
-    if _BOT_ME_CACHE is None:
-        _BOT_ME_CACHE = await bot.get_me()
-    return _BOT_ME_CACHE
 
 
 def bt(key):
@@ -621,22 +506,18 @@ def find_movie_code(query: str):
         return code, []
 
     q = _norm_search_text(raw)
-    _ensure_movie_search_index()
     exact = []
     partial = []
-    starts = []
-    for item in MOVIE_SEARCH_INDEX:
-        c = item["code"]
-        title_norm = item["title_norm"]
-        code_norm = item["code_norm"]
+    for c, movie in movies.items():
+        title = movie.get("title", c) if isinstance(movie, dict) else c
+        title_norm = _norm_search_text(title)
+        code_norm = _norm_search_text(c)
         if q and (q == title_norm or q == code_norm):
             exact.append(c)
-        elif q and (title_norm.startswith(q) or code_norm.startswith(q)):
-            starts.append(c)
         elif q and (q in title_norm or title_norm in q or q in code_norm):
             partial.append(c)
 
-    matches = exact or starts or partial
+    matches = exact or partial
     if len(matches) == 1:
         return matches[0], []
     return None, matches[:10]
@@ -741,24 +622,23 @@ def find_key_by_text(text: str) -> str | None:
 # ══════════════════════════════════════════════════════════
 
 def ibtn(text, data=None, url=None, style=None, emoji_id=None):
-    """PTB 9.4 uchun InlineKeyboardButton obyekti."""
+    kw = {"text": text}
+    if data:
+        kw["callback_data"] = data
     if url:
-        return InlineKeyboardButton(text=text, url=url)
-    return InlineKeyboardButton(text=text, callback_data=data or "noop")
+        kw["url"] = url
+    return InlineKeyboardButton(**kw)
 
 
 def rbtn(text, style=None, emoji_id=None):
-    """PTB 9.4 uchun KeyboardButton obyekti."""
     return KeyboardButton(text=text)
 
 
 def ikb(rows):
-    """InlineKeyboardMarkup yaratish."""
     return InlineKeyboardMarkup(rows)
 
 
 def rkb(rows, resize=True):
-    """ReplyKeyboardMarkup yaratish."""
     return ReplyKeyboardMarkup(rows, resize_keyboard=resize)
 
 # ══════════════════════════════════════════════════════════
@@ -1022,7 +902,7 @@ async def resolve_required_channel(bot, raw_username: str) -> dict:
         raise ValueError("Kanal username noto'g'ri")
 
     chat = await bot.get_chat(username)
-    bot_user = await get_bot_me(bot)
+    bot_user = await bot.get_me()
     bot_member = await bot.get_chat_member(chat.id, bot_user.id)
     if bot_member.status in ("left", "kicked"):
         raise ValueError("Bot kanalga qo'shilmagan")
@@ -1138,8 +1018,9 @@ def build_broadcast_markup(buttons: list):
         return None
     rows = []
     for b in buttons:
-        rows.append([InlineKeyboardButton(text=b["text"], url=b["url"])])
-    return InlineKeyboardMarkup(rows)
+        btn_style = b.get("style", "primary")
+        rows.append([ibtn(b["text"], url=b["url"], style=btn_style)])
+    return ikb(rows)
 
 
 async def send_broadcast_preview(bot, uid, bc: dict):
@@ -1587,7 +1468,7 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     await context.bot.send_chat_action(q.from_user.id, action="upload_video")
 
-    bot_me = await get_bot_me(context.bot)
+    bot_me = await context.bot.get_me()
     share_url = f"https://t.me/share/url?url=https://t.me/{bot_me.username}?start=code_{code}"
     caption = f"🎬 <b>{movie.get('title')}</b>\n📺 Qism: <b>{ep}</b>"
 
@@ -1603,8 +1484,7 @@ async def cb_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         movie["views"][ep] = movie["views"].get(ep, 0) + 1
         DB["users"].setdefault(user_id, {}).setdefault("watched", {})[f"{code}_{ep}"] = True
         DB["stats"]["total_views"] = DB["stats"].get("total_views", 0) + 1
-        await asyncio.sleep(0)  # event loop ga imkon berish
-        save()  # fon rejimida saqlash
+        await db_save_async(DB)
 
     asyncio.create_task(update_stats())
 
@@ -1662,8 +1542,7 @@ async def cb_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 movie["views"][pay["ep"]] = movie["views"].get(pay["ep"], 0) + 1
                 DB["users"][uid].setdefault("watched", {})[f"{pay['code']}_{pay['ep']}"] = True
                 DB["stats"]["total_views"] = DB["stats"].get("total_views", 0) + 1
-                await asyncio.sleep(0)
-                save()
+                await db_save_async(DB)
 
             asyncio.create_task(update_pay_stats())
     else:
@@ -2173,8 +2052,7 @@ async def admin_state_handler(update, context, text):
             "prices": {},
             "added_date": now,
         }
-        _rebuild_movie_search_index()
-        await save_fast()
+        await save_now()
         context.user_data["admin_state"] = "add_movie_poster"
         context.user_data["poster_code"] = code
         await sm(context.bot, uid,
@@ -2441,7 +2319,7 @@ async def admin_state_handler(update, context, text):
         channel = text
         code = context.user_data.get("post_code")
         movie = DB["movies"].get(code, {})
-        bot_me = await get_bot_me(context.bot)
+        bot_me = await context.bot.get_me()
         markup = channel_post_kb(bot_me.username, code)
         title = movie.get('title', code)
         ep_count = len(movie.get('episodes', []))
@@ -2560,7 +2438,7 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("new_movie_code", None)
         if msg.photo and code:
             DB["movies"][code]["poster_file_id"] = msg.photo[-1].file_id
-            await save_fast()
+            await save_now()
             await sm(context.bot, uid,
                 f"✅ Poster saqlandi!\nKod: <code>{code}</code>",
                 movie_added_kb(code))
@@ -2578,8 +2456,7 @@ async def media_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if msg.video:
             DB["movies"][code]["episodes"].append(msg.video.file_id)
-            _rebuild_movie_search_index()
-            await save_fast()
+            await save_now()
             ep_num = len(DB["movies"][code]["episodes"])
             context.user_data.pop("admin_state")
             context.user_data.pop("ep_movie_code", None)
@@ -2663,12 +2540,7 @@ def main():
         raise RuntimeError("ADMIN_ID environment o'zgaruvchisi kiritilmagan")
     if not JSONBIN_API_KEY or not JSONBIN_BIN_ID:
         logger.warning("JSONBIN_API_KEY/JSONBIN_BIN_ID yo'q — bot faqat lokal/JSONBlob bilan ishlaydi")
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .concurrent_updates(True)
-        .build()
-    )
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
@@ -2681,10 +2553,7 @@ def main():
     # yangi kinolar/emoji/tugmalar xotiraga merge qilinadi. Foydalanuvchi qidiruvi
     # baribir JSONBin'ga chiqmaydi — faqat xotiradagi DBdan topadi.
     async def _periodic_refresh(context):
-        global DB, _pending_remote_sync, _refresh_in_progress
-        if _refresh_in_progress:
-            return
-        _refresh_in_progress = True
+        global DB, _pending_remote_sync
         try:
             # 1) Agar oxirgi save'da onlayn muvaffaqiyatsiz bo'lgan bo'lsa —
             # avval LOKAL holatni JSONBin/JSONBlob'ga PUSH qilamiz.
@@ -2705,23 +2574,12 @@ def main():
                 return
 
             added = 0
-            changed = 0
             for code, mv in fresh.get("movies", {}).items():
                 if code not in DB.setdefault("movies", {}):
                     DB["movies"][code] = mv
                     added += 1
-                elif _merge_movie_record(DB["movies"][code], mv):
-                    changed += 1
             for user_id, user_data in fresh.get("users", {}).items():
-                local_user = DB.setdefault("users", {}).setdefault(user_id, {})
-                if isinstance(user_data, dict):
-                    for k, v in user_data.items():
-                        if isinstance(v, dict):
-                            bucket = local_user.setdefault(k, {})
-                            for sub_k, sub_v in v.items():
-                                bucket.setdefault(sub_k, sub_v)
-                        else:
-                            local_user.setdefault(k, v)
+                DB.setdefault("users", {}).setdefault(user_id, user_data)
             # btn_texts va emoji_ids — lokalga ustunlik beramiz (yangi sozlangan)
             for key, value in fresh.get("btn_texts", {}).items():
                 DB.setdefault("btn_texts", {}).setdefault(key, value)
@@ -2737,25 +2595,18 @@ def main():
                 for k, v in fresh.get("settings", {}).items():
                     if v and not DB.setdefault("settings", {}).get(k):
                         DB["settings"][k] = v
-            if added or changed:
-                _rebuild_movie_search_index()
-                _save_local(json.dumps(DB, ensure_ascii=False))
-                logger.info(f"🔄 JSONBin refresh: +{added} yangi kino, {changed} ta kino yangilandi")
+            if added:
+                logger.info(f"🔄 JSONBin refresh: +{added} yangi kino merge qilindi")
         except Exception as e:
             logger.error(f"Periodik refresh xato: {e}")
-        finally:
-            _refresh_in_progress = False
 
     if app.job_queue:
         # Tezroq retry — har 60 soniyada (oldin 180s edi)
         app.job_queue.run_repeating(_periodic_refresh, interval=60, first=30)
         logger.info("🔄 Periodik JSONBin sync yoqildi (har 60 soniyada)")
 
-    logger.info(f"Bot ishga tushdi! v14 (PTB 9.4) — {len(DB.get('movies', {}))} kino xotirada")
-    app.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=Update.ALL_TYPES,
-    )
+    logger.info(f"Bot ishga tushdi! v12 — {len(DB.get('movies', {}))} kino xotirada")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
