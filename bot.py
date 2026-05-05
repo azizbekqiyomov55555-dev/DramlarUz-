@@ -1064,19 +1064,21 @@ def _strip_html(text: str) -> str:
     return re.sub(r'<[^>]+>', '', text or '').strip()
 
 
-def generate_movies_image() -> BytesIO | None:
+PHOTO_PAGE_SIZE = 20   # Har bir suratda nechta kino ko'rsatilsin
+
+
+def generate_movies_image(movie_slice: list, page: int = 1, total_pages: int = 1,
+                          total_count: int = 0) -> BytesIO | None:
     """
-    Barcha kinolarni chiroyli oq katak fonda, qalin yozuv bilan,
-    kino nomi + kodi + ko'rilganlar soni ko'rsatilib rasmga chiqaradi.
+    Berilgan movie_slice ro'yxatini chiroyli oq katak fonda, qalin yozuv bilan rasmga chiqaradi.
+    movie_slice: [(code, movie_dict), ...]
     """
     if not PIL_AVAILABLE:
         return None
-
-    movies = DB.get("movies", {})
-    if not movies:
+    if not movie_slice:
         return None
 
-    movie_list = list(movies.items())
+    movie_list = movie_slice
 
     # ── Ranglar ──────────────────────────────────────────────
     BG_COLOR     = (250, 250, 252)
@@ -1219,7 +1221,12 @@ def generate_movies_image() -> BytesIO | None:
     # ── Footer ───────────────────────────────────────────────
     fy = img_h - FOOTER_H
     draw.rectangle([(0, fy), (IMG_W, img_h)], fill=HEADER_BG)
-    f_text = f"Jami: {len(movie_list)} ta kino  |  Kino kodini yuboring!"
+    if total_pages > 1:
+        start_n = (page - 1) * PHOTO_PAGE_SIZE + 1
+        end_n   = start_n + len(movie_list) - 1
+        f_text = f"{start_n}-{end_n} ko'rsatildi  |  Jami: {total_count} ta  |  Kino kodini yuboring!"
+    else:
+        f_text = f"Jami: {total_count} ta kino  |  Kino kodini yuboring!"
     try:
         fbb = draw.textbbox((0, 0), f_text, font=fnt_footer)
         fx  = (IMG_W - (fbb[2] - fbb[0])) // 2
@@ -1230,6 +1237,90 @@ def generate_movies_image() -> BytesIO | None:
 
     buf = BytesIO()
     img.save(buf, format="JPEG", quality=95)
+    buf.seek(0)
+    return buf
+
+
+
+def _make_placeholder_image(title: str, code: str, idx: int) -> BytesIO | None:
+    """
+    Poster bo'lmagan kinolar uchun chiroyli placeholder surat yasaydi.
+    """
+    if not PIL_AVAILABLE:
+        return None
+
+    ACCENT_COLORS = [
+        (25,  95,  215),
+        (40,  160,  70),
+        (200,  50,  60),
+        (200, 120,   0),
+        (110,  60, 190),
+        (  0, 140, 180),
+    ]
+    W, H  = 640, 360
+    col   = ACCENT_COLORS[idx % len(ACCENT_COLORS)]
+    dark  = tuple(max(0, c - 60) for c in col)
+    WHITE = (255, 255, 255)
+
+    img  = Image.new("RGB", (W, H), col)
+    draw = ImageDraw.Draw(img)
+
+    # Gradient effect — pastki qism to'qroq
+    for y in range(H):
+        ratio = y / H
+        r = int(col[0] * (1 - ratio * 0.4))
+        g = int(col[1] * (1 - ratio * 0.4))
+        b = int(col[2] * (1 - ratio * 0.4))
+        draw.line([(0, y), (W, y)], fill=(r, g, b))
+
+    font_paths_bold = [
+        "/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ]
+
+    def try_font(size):
+        for p in font_paths_bold:
+            if os.path.exists(p):
+                try: return ImageFont.truetype(p, size)
+                except: continue
+        return ImageFont.load_default()
+
+    fnt_title = try_font(32)
+    fnt_code  = try_font(20)
+    fnt_icon  = try_font(48)
+
+    # Markazda 🎬 belgisi
+    icon_y = H // 2 - 80
+    try:
+        ib = draw.textbbox((0, 0), "🎬", font=fnt_icon)
+        draw.text(((W - (ib[2]-ib[0])) // 2, icon_y), "🎬", font=fnt_icon)
+    except Exception:
+        pass
+
+    # Kino nomi
+    short = title if len(title) <= 28 else title[:26] + "…"
+    try:
+        tb = draw.textbbox((0, 0), short, font=fnt_title)
+        tx = (W - (tb[2] - tb[0])) // 2
+        ty = H // 2 - 10
+    except Exception:
+        tx, ty = 40, H // 2 - 10
+    draw.text((tx + 2, ty + 2), short, fill=(0, 0, 0, 80), font=fnt_title)
+    draw.text((tx, ty), short, fill=WHITE, font=fnt_title)
+
+    # Kod
+    code_txt = f"Kod: {code}"
+    try:
+        cb = draw.textbbox((0, 0), code_txt, font=fnt_code)
+        cx = (W - (cb[2] - cb[0])) // 2
+        cy = ty + (tb[3] - tb[1]) + 16 if 'tb' in dir() else ty + 50
+    except Exception:
+        cx, cy = W // 2 - 40, ty + 50
+    draw.text((cx, cy), code_txt, fill=(220, 230, 255), font=fnt_code)
+
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=90)
     buf.seek(0)
     return buf
 
@@ -2011,48 +2102,119 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Kino qo'shilganda bu yerda ko'rinadi! 📽")
             return
 
-        # Kino kodlari kanali inline tugmasi
+        all_items   = list(movies.items())
+        total_count = len(all_items)
+
         kanal_url = DB.get("settings", {}).get("kino_kanal_url", "")
-        kanal_kb  = None
+        kanal_row = []
         if kanal_url:
-            kanal_kb = ikb([[ibtn(bt("kino_kanal"), url=kanal_url, style="primary",
-                                  emoji_id=get_eid("kino_kanal"))]])
+            kanal_row = [ibtn(bt("kino_kanal"), url=kanal_url, style="primary",
+                               emoji_id=get_eid("kino_kanal"))]
 
-        # Rasm generatsiya qilish
-        if PIL_AVAILABLE:
+        # ── 1-20 ta: har birini poster sifatida media group ─
+        photo_items = all_items[:PHOTO_PAGE_SIZE]
+        extra_items = all_items[PHOTO_PAGE_SIZE:]
+
+        from telegram import InputMediaPhoto
+
+        media_group = []
+        for idx, (code, movie) in enumerate(photo_items):
+            title    = _strip_html(movie.get("title", code))
+            ep_count = len(movie.get("episodes", []))
+            views    = sum(movie.get("views", {}).values())
+            cap_line = (
+                f"<b>{idx+1}. {title}</b>\n"
+                f"📌 Kod: <code>{code}</code>  |  {ep_count} qism  |  👁 {views}"
+            )
+            poster = movie.get("poster_file_id")
+
+            if poster:
+                media_group.append(InputMediaPhoto(media=poster, caption=cap_line, parse_mode="HTML"))
+            elif PIL_AVAILABLE:
+                # Poster yo'q — PIL bilan placeholder yasaymiz
+                try:
+                    placeholder = await asyncio.to_thread(
+                        _make_placeholder_image, title, code, idx
+                    )
+                    if placeholder:
+                        media_group.append(InputMediaPhoto(media=placeholder, caption=cap_line, parse_mode="HTML"))
+                except Exception as pe:
+                    logger.warning(f"Placeholder xato ({code}): {pe}")
+
+        if media_group:
+            # Telegram media group max 10 ta — ikki qismga bo'lamiz
             try:
-                img_buf = await asyncio.to_thread(generate_movies_image)
-                if img_buf:
-                    caption = (
-                        f"🎬 <b>Barcha kinolar ro'yxati</b>\n"
-                        f"📋 Jami: <b>{len(movies)} ta kino</b>\n\n"
-                        f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
-                    )
-                    send_kw = dict(
-                        chat_id=uid,
-                        photo=img_buf,
-                        caption=caption,
-                        parse_mode="HTML",
-                    )
-                    if kanal_kb:
-                        send_kw["reply_markup"] = kanal_kb
-                    await context.bot.send_photo(**send_kw)
-                    return
+                for batch_start in range(0, len(media_group), 10):
+                    batch = media_group[batch_start:batch_start + 10]
+                    await context.bot.send_media_group(chat_id=uid, media=batch)
+                    if batch_start + 10 < len(media_group):
+                        await asyncio.sleep(0.5)
             except Exception as e:
-                logger.error(f"Barcha kinolar rasm xato: {e}")
+                logger.error(f"Media group xato: {e}")
+                # Fallback — oddiy matn
+                lines = []
+                for i, (code, movie) in enumerate(photo_items, 1):
+                    title = _strip_html(movie.get("title", code))
+                    ep_n  = len(movie.get("episodes", []))
+                    lines.append(f"{i}. 🎬 <b>{title}</b>\n   📌 Kod: <code>{code}</code> | {ep_n} qism")
+                await sm(context.bot, uid,
+                    f"🎬 <b>Kinolar</b> (1–{len(photo_items)}):\n\n" + "\n\n".join(lines))
+        else:
+            await sm(context.bot, uid, "⏳ Kinolar yuklanmoqda...")
 
-        # Agar PIL yo'q yoki rasm yaratishda xato — matn ko'rinishida
-        lines = []
-        for i, (code, movie) in enumerate(movies.items(), 1):
-            title = _strip_html(movie.get("title", code))
-            ep_n  = len(movie.get("episodes", []))
-            lines.append(f"{i}. 🎬 <b>{title}</b>\n   📌 Kod: <code>{code}</code> | {ep_n} qism")
-        text_out = (
-            f"🎬 <b>Barcha kinolar</b> ({len(movies)} ta)\n\n"
-            + "\n\n".join(lines)
-            + "\n\nKino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
-        )
-        await sm(context.bot, uid, text_out, kanal_kb)
+        # Xulosa + kanal tugmasi
+        kb_rows = [kanal_row] if kanal_row else []
+        kb = ikb(kb_rows) if kb_rows else None
+        if extra_items:
+            summary = (
+                f"🎬 <b>Jami {total_count} ta kino</b>\n"
+                f"✅ <b>1–{len(photo_items)} ta</b> yuqorida ko'rsatildi.\n"
+                f"📄 Qolgan <b>{len(extra_items)} ta kino</b> quyidagi faylda 👇\n\n"
+                f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
+            )
+        else:
+            summary = (
+                f"🎬 <b>Barcha {total_count} ta kino</b> yuqorida!\n\n"
+                f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
+            )
+        await sm(context.bot, uid, summary, kb)
+
+        # ── Qolgan kinolar .txt fayl sifatida ───────────────
+        if extra_items:
+            try:
+                lines = []
+                for i, (code, movie) in enumerate(extra_items, len(photo_items) + 1):
+                    title    = _strip_html(movie.get("title", code))
+                    ep_count = len(movie.get("episodes", []))
+                    views    = sum(movie.get("views", {}).values())
+                    lines.append(
+                        f"{i}. {title}\n"
+                        f"   Kod: {code}  |  {ep_count} qism  |  {views} korilgan\n"
+                    )
+                header_txt = (
+                    f"BARCHA KINOLAR RO'YXATI\n"
+                    f"Jami: {total_count} ta  |  Bu faylda: {len(extra_items)} ta "
+                    f"({len(photo_items)+1}-{total_count})\n"
+                    f"{'='*40}\n\n"
+                )
+                file_content = (header_txt + "\n".join(lines)).encode("utf-8")
+                doc_buf = BytesIO(file_content)
+                doc_buf.seek(0)
+                await context.bot.send_document(
+                    chat_id=uid,
+                    document=doc_buf,
+                    filename="kinolar_royxati.txt",
+                    caption=(
+                        f"📄 <b>Qolgan kinolar ro'yxati</b>\n"
+                        f"<b>{len(photo_items)+1}–{total_count}</b> oralig'idagi "
+                        f"<b>{len(extra_items)} ta kino</b>\n\n"
+                        f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=kb
+                )
+            except Exception as e:
+                logger.error(f"Barcha kinolar fayl xato: {e}")
         return
 
     # ── 9. Yordam so'rovi ───────────────────────────────
