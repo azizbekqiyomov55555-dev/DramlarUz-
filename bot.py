@@ -2111,13 +2111,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kanal_row = [ibtn(bt("kino_kanal"), url=kanal_url, style="primary",
                                emoji_id=get_eid("kino_kanal"))]
 
-        # ── 1-20 ta: har birini poster sifatida media group ─
         photo_items = all_items[:PHOTO_PAGE_SIZE]
         extra_items = all_items[PHOTO_PAGE_SIZE:]
 
         from telegram import InputMediaPhoto
 
-        media_group = []
+        # ── Faqat posteri bor kinolar media group sifatida ──
+        media_group  = []
+        no_poster    = []   # posteri yo'q kinolar — matn sifatida yig'amiz
+
         for idx, (code, movie) in enumerate(photo_items):
             title    = _strip_html(movie.get("title", code))
             ep_count = len(movie.get("episodes", []))
@@ -2127,22 +2129,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📌 Kod: <code>{code}</code>  |  {ep_count} qism  |  👁 {views}"
             )
             poster = movie.get("poster_file_id")
-
             if poster:
                 media_group.append(InputMediaPhoto(media=poster, caption=cap_line, parse_mode="HTML"))
-            elif PIL_AVAILABLE:
-                # Poster yo'q — PIL bilan placeholder yasaymiz
-                try:
-                    placeholder = await asyncio.to_thread(
-                        _make_placeholder_image, title, code, idx
-                    )
-                    if placeholder:
-                        media_group.append(InputMediaPhoto(media=placeholder, caption=cap_line, parse_mode="HTML"))
-                except Exception as pe:
-                    logger.warning(f"Placeholder xato ({code}): {pe}")
+            else:
+                no_poster.append((idx + 1, code, title, ep_count, views))
 
+        # Media group — max 10 ta per batch
         if media_group:
-            # Telegram media group max 10 ta — ikki qismga bo'lamiz
             try:
                 for batch_start in range(0, len(media_group), 10):
                     batch = media_group[batch_start:batch_start + 10]
@@ -2151,16 +2144,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await asyncio.sleep(0.5)
             except Exception as e:
                 logger.error(f"Media group xato: {e}")
-                # Fallback — oddiy matn
-                lines = []
-                for i, (code, movie) in enumerate(photo_items, 1):
-                    title = _strip_html(movie.get("title", code))
-                    ep_n  = len(movie.get("episodes", []))
-                    lines.append(f"{i}. 🎬 <b>{title}</b>\n   📌 Kod: <code>{code}</code> | {ep_n} qism")
-                await sm(context.bot, uid,
-                    f"🎬 <b>Kinolar</b> (1–{len(photo_items)}):\n\n" + "\n\n".join(lines))
-        else:
-            await sm(context.bot, uid, "⏳ Kinolar yuklanmoqda...")
+
+        # Posteri yo'q kinolar — matn sifatida
+        if no_poster:
+            lines = [
+                f"{n}. 🎬 <b>{t}</b>\n   📌 Kod: <code>{c}</code>  |  {ep} qism  |  👁 {v}"
+                for n, c, t, ep, v in no_poster
+            ]
+            await sm(context.bot, uid,
+                "📋 <b>Posteri yo'q kinolar:</b>\n\n" + "\n\n".join(lines))
 
         # Xulosa + kanal tugmasi
         kb_rows = [kanal_row] if kanal_row else []
