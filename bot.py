@@ -11,7 +11,14 @@ Asosiy tuzatishlar:
 import logging, asyncio, json, time, re, os, threading, copy
 from datetime import datetime
 from functools import lru_cache
+from io import BytesIO
 import requests
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -37,73 +44,79 @@ logger = logging.getLogger(__name__)
 
 # ─── BUTTON TEXTS ──────────────────────────────────────────
 DEFAULT_BTN = {
-    "yordam":     "Yordam",
-    "install":    "Ilovani o'rnatish",
-    "kino_joy":   "Kino joylash",
-    "qism_qosh":  "Qism qo'shish",
-    "pullik":     "Qismni pullik qilish",
-    "stat":       "Statistika",
-    "kanal_post": "Kanalga post",
-    "maj_kanal":  "Majburiy kanal",
-    "karta":      "Karta raqami",
-    "ilova":      "Ilova fayl/video",
-    "emoji_soz":  "Emoji sozlamalari",
-    "asosiy":     "Asosiy menyu",
-    "boshqarish": "⚙️ Boshqarish",
-    "tekshir":    "Tekshirish",
-    "tasdiq":     "Tasdiqlash",
-    "bekor":      "Bekor qilish",
-    "ulash":      "Do'stlarga ulashish",
-    "tomosha":    "Tomosha qilish",
-    "javob":      "Javob berish",
-    "yangi":      "Yangilash",
-    "qism_add":   "Qism qo'shish",
-    "narx_bel":   "Narx belgilash",
-    "kut":        "Tasdiqlanishini kuting",
-    "bosh":       "Bosh menyu",
-    "tiklash":    "Hammasini tiklash",
-    "yopish":     "Yopish",
-    "default_q":  "Defaultga qaytarish",
-    "orqaga":     "Orqaga",
-    "broadcast":  "📢 Barchaga xabar",
-    "kino_uch":   "🗑 Kino o'chirish",
-    "prev_qism":  "Oldingi qismlar",
-    "next_qism":  "Boshqa qismlar",
+    "yordam":      "🎧 Yordam",
+    "install":     "📲 Ilovani o'rnatish",
+    "barcha_kino": "🎬 Barcha kinolar",
+    "kino_kanal":  "📺 Kino kodlari kanali",
+    "kino_joy":    "🎥 Kino joylash",
+    "qism_qosh":   "➕ Qism qo'shish",
+    "pullik":      "💰 Qismni pullik qilish",
+    "stat":        "📊 Statistika",
+    "kanal_post":  "📤 Kanalga post",
+    "maj_kanal":   "📡 Majburiy kanal",
+    "karta":       "💳 Karta raqami",
+    "ilova":       "📦 Ilova fayl/video",
+    "emoji_soz":   "🎨 Emoji sozlamalari",
+    "asosiy":      "🏠 Asosiy menyu",
+    "boshqarish":  "⚙️ Boshqarish",
+    "tekshir":     "✅ Tekshirish",
+    "tasdiq":      "✅ Tasdiqlash",
+    "bekor":       "❌ Bekor qilish",
+    "ulash":       "🔗 Do'stlarga ulashish",
+    "tomosha":     "▶️ Tomosha qilish",
+    "javob":       "💬 Javob berish",
+    "yangi":       "🔄 Yangilash",
+    "qism_add":    "➕ Qism qo'shish",
+    "narx_bel":    "💰 Narx belgilash",
+    "kut":         "⏳ Tasdiqlanishini kuting",
+    "bosh":        "🏠 Bosh menyu",
+    "tiklash":     "🔄 Hammasini tiklash",
+    "yopish":      "❌ Yopish",
+    "default_q":   "🔄 Defaultga qaytarish",
+    "orqaga":      "⬅️ Orqaga",
+    "broadcast":   "📢 Barchaga xabar",
+    "kino_uch":    "🗑 Kino o'chirish",
+    "prev_qism":   "⬅️ Oldingi qismlar",
+    "next_qism":   "➡️ Boshqa qismlar",
+    "kino_kanal_set": "🔗 Kino kanali linkini o'rnatish",
 }
 
 BTN_LABELS = {
-    "yordam":     "Yordam tugmasi",
-    "install":    "O'rnatish tugmasi",
-    "kino_joy":   "Kino joylash",
-    "qism_qosh":  "Qism qo'shish",
-    "pullik":     "Pullik qilish",
-    "stat":       "Statistika",
-    "kanal_post": "Kanalga post",
-    "maj_kanal":  "Majburiy kanal",
-    "karta":      "Karta raqami",
-    "ilova":      "Ilova fayl/video",
-    "emoji_soz":  "Emoji sozlamalari",
-    "asosiy":     "Asosiy menyu",
-    "boshqarish": "⚙️ Boshqarish",
-    "tekshir":    "Tekshirish",
-    "tasdiq":     "Tasdiqlash",
-    "bekor":      "Bekor qilish",
-    "ulash":      "Ulashish",
-    "tomosha":    "Tomosha qilish",
-    "javob":      "Javob berish",
-    "yangi":      "Yangilash",
-    "qism_add":   "Qism qo'shish (inline)",
-    "narx_bel":   "Narx belgilash",
-    "kut":        "Kuting tugmasi",
-    "bosh":       "Bosh menyu (inline)",
-    "tiklash":    "Hammasini tiklash",
-    "yopish":     "Yopish",
-    "default_q":  "Defaultga qaytarish",
-    "orqaga":     "Orqaga",
-    "broadcast":  "Barchaga xabar",
-    "kino_uch":   "Kino o'chirish",
-    "prev_qism":  "Oldingi qismlar tugmasi",
-    "next_qism":  "Boshqa qismlar tugmasi",
+    "yordam":        "Yordam tugmasi",
+    "install":       "O'rnatish tugmasi",
+    "barcha_kino":   "Barcha kinolar tugmasi",
+    "kino_kanal":    "Kino kodlari kanali tugmasi",
+    "kino_kanal_set":"Kino kanali linki",
+    "kino_joy":      "Kino joylash",
+    "qism_qosh":     "Qism qo'shish",
+    "pullik":        "Pullik qilish",
+    "stat":          "Statistika",
+    "kanal_post":    "Kanalga post",
+    "maj_kanal":     "Majburiy kanal",
+    "karta":         "Karta raqami",
+    "ilova":         "Ilova fayl/video",
+    "emoji_soz":     "Emoji sozlamalari",
+    "asosiy":        "Asosiy menyu",
+    "boshqarish":    "⚙️ Boshqarish",
+    "tekshir":       "Tekshirish",
+    "tasdiq":        "Tasdiqlash",
+    "bekor":         "Bekor qilish",
+    "ulash":         "Ulashish",
+    "tomosha":       "Tomosha qilish",
+    "javob":         "Javob berish",
+    "yangi":         "Yangilash",
+    "qism_add":      "Qism qo'shish (inline)",
+    "narx_bel":      "Narx belgilash",
+    "kut":           "Kuting tugmasi",
+    "bosh":          "Bosh menyu (inline)",
+    "tiklash":       "Hammasini tiklash",
+    "yopish":        "Yopish",
+    "default_q":     "Defaultga qaytarish",
+    "orqaga":        "Orqaga",
+    "broadcast":     "Barchaga xabar",
+    "kino_uch":      "Kino o'chirish",
+    "prev_qism":     "Oldingi qismlar tugmasi",
+    "next_qism":     "Boshqa qismlar tugmasi",
 }
 
 LABEL_TO_KEY = {v: k for k, v in BTN_LABELS.items()}
@@ -111,7 +124,7 @@ LABEL_TO_KEY = {v: k for k, v in BTN_LABELS.items()}
 DEFAULT_DB = {
     "users": {}, "movies": {}, "channels": [], "card_number": "",
     "pending_payments": {},
-    "settings": {"install_file_id": None, "install_video_id": None},
+    "settings": {"install_file_id": None, "install_video_id": None, "kino_kanal_url": ""},
     "stats": {"total_views": 0},
     "btn_texts": {},
     "emoji_ids": {},
@@ -576,6 +589,8 @@ def main_menu_kb(is_admin=False):
     rows = [[
         rbtn(bt("yordam"),  style="primary", emoji_id=get_eid("yordam")),
         rbtn(bt("install"), style="success", emoji_id=get_eid("install")),
+    ], [
+        rbtn(bt("barcha_kino"), style="primary", emoji_id=get_eid("barcha_kino")),
     ]]
     if is_admin:
         rows.append([rbtn(bt("boshqarish"), style="primary", emoji_id=get_eid("boshqarish"))])
@@ -584,18 +599,19 @@ def main_menu_kb(is_admin=False):
 
 def admin_menu_kb():
     return rkb([
-        [rbtn(bt("kino_joy"),   style="success", emoji_id=get_eid("kino_joy")),
-         rbtn(bt("qism_qosh"),  style="primary", emoji_id=get_eid("qism_qosh"))],
-        [rbtn(bt("pullik"),     style="danger",  emoji_id=get_eid("pullik")),
-         rbtn(bt("stat"),       style="primary", emoji_id=get_eid("stat"))],
-        [rbtn(bt("kanal_post"), style="primary", emoji_id=get_eid("kanal_post")),
-         rbtn(bt("maj_kanal"),  style="danger",  emoji_id=get_eid("maj_kanal"))],
-        [rbtn(bt("karta"),      style="success", emoji_id=get_eid("karta")),
-         rbtn(bt("ilova"),      style="primary", emoji_id=get_eid("ilova"))],
-        [rbtn(bt("emoji_soz"),  style="primary", emoji_id=get_eid("emoji_soz"))],
-        [rbtn(bt("kino_uch"),   style="danger",  emoji_id=get_eid("kino_uch")),
-         rbtn(bt("broadcast"),  style="danger",  emoji_id=get_eid("broadcast"))],
-        [rbtn(bt("asosiy"),     style="success", emoji_id=get_eid("asosiy"))],
+        [rbtn(bt("kino_joy"),        style="success", emoji_id=get_eid("kino_joy")),
+         rbtn(bt("qism_qosh"),       style="primary", emoji_id=get_eid("qism_qosh"))],
+        [rbtn(bt("pullik"),          style="danger",  emoji_id=get_eid("pullik")),
+         rbtn(bt("stat"),            style="primary", emoji_id=get_eid("stat"))],
+        [rbtn(bt("kanal_post"),      style="primary", emoji_id=get_eid("kanal_post")),
+         rbtn(bt("maj_kanal"),       style="danger",  emoji_id=get_eid("maj_kanal"))],
+        [rbtn(bt("karta"),           style="success", emoji_id=get_eid("karta")),
+         rbtn(bt("ilova"),           style="primary", emoji_id=get_eid("ilova"))],
+        [rbtn(bt("kino_kanal_set"),  style="success", emoji_id=get_eid("kino_kanal_set"))],
+        [rbtn(bt("emoji_soz"),       style="primary", emoji_id=get_eid("emoji_soz"))],
+        [rbtn(bt("kino_uch"),        style="danger",  emoji_id=get_eid("kino_uch")),
+         rbtn(bt("broadcast"),       style="danger",  emoji_id=get_eid("broadcast"))],
+        [rbtn(bt("asosiy"),          style="success", emoji_id=get_eid("asosiy"))],
     ])
 
 
@@ -659,6 +675,11 @@ def movie_episodes_kb(movie: dict, code: str, user_id, page: int = 0):
                         style="primary", emoji_id=get_eid("next_qism")))
     if nav:
         rows.append(nav)
+    # Kino kodlari kanali tugmasi
+    kanal_url = DB.get("settings", {}).get("kino_kanal_url", "")
+    if kanal_url:
+        rows.append([ibtn(bt("kino_kanal"), url=kanal_url, style="primary",
+                          emoji_id=get_eid("kino_kanal"))])
     return ikb(rows)
 
 
@@ -1013,6 +1034,177 @@ async def do_broadcast(bot, bc: dict):
 
     await asyncio.gather(*[send_one(uid) for uid in users])
     return ok, fail
+
+
+
+# ══════════════════════════════════════════════════════════
+# BARCHA KINOLAR RASMI GENERATSIYA
+# ══════════════════════════════════════════════════════════
+
+def _strip_html(text: str) -> str:
+    """HTML teglarini olib tashlaydi"""
+    return re.sub(r'<[^>]+>', '', text or '').strip()
+
+
+def generate_movies_image() -> BytesIO | None:
+    """
+    Barcha kinolarni chiroyli oq fonda katakli ko'rinishda rasmga chiqaradi.
+    Pillow kutubxonasi bo'lmasa None qaytaradi.
+    """
+    if not PIL_AVAILABLE:
+        return None
+
+    movies = DB.get("movies", {})
+    if not movies:
+        return None
+
+    # ── Ranglar ──────────────────────────────────────────────
+    BG_COLOR      = (248, 250, 255)     # Och ko'k-oq fon
+    HEADER_COLOR  = (30, 80, 180)       # Sarlavha — to'q ko'k
+    CARD_COLORS   = [
+        (52, 120, 246),    # Ko'k
+        (40, 167, 69),     # Yashil
+        (220, 53, 69),     # Qizil
+        (255, 140, 0),     # To'q sariq
+        (111, 66, 193),    # Binafsha
+        (23, 162, 184),    # Moviy
+    ]
+    WHITE         = (255, 255, 255)
+    TEXT_LIGHT    = (255, 255, 255)
+    TEXT_DARK     = (30, 30, 30)
+    SHADOW_COLOR  = (180, 200, 230, 80)
+
+    # ── O'lchamlar ───────────────────────────────────────────
+    COLS          = 2
+    CARD_W        = 380
+    CARD_H        = 90
+    PAD_X         = 24
+    PAD_Y         = 16
+    CARD_GAP      = 14
+    HEADER_H      = 90
+    FOOTER_H      = 50
+    CORNER_R      = 16
+
+    movie_list = list(movies.items())
+    rows_count = (len(movie_list) + COLS - 1) // COLS
+
+    img_w = COLS * CARD_W + (COLS + 1) * PAD_X
+    img_h = HEADER_H + rows_count * (CARD_H + CARD_GAP) + PAD_Y + FOOTER_H
+
+    img = Image.new("RGB", (img_w, img_h), BG_COLOR)
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    # ── Shrift ───────────────────────────────────────────────
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
+    ]
+    font_title  = None
+    font_name   = None
+    font_code   = None
+    font_header = None
+    for fp in font_paths:
+        if os.path.exists(fp):
+            try:
+                font_header = ImageFont.truetype(fp, 36)
+                font_title  = ImageFont.truetype(fp, 20)
+                font_code   = ImageFont.truetype(fp, 16)
+                font_name   = ImageFont.truetype(fp, 19)
+                break
+            except Exception:
+                continue
+    if font_title is None:
+        font_header = ImageFont.load_default()
+        font_title  = ImageFont.load_default()
+        font_code   = ImageFont.load_default()
+        font_name   = ImageFont.load_default()
+
+    # ── Sarlavha (header) ────────────────────────────────────
+    draw.rectangle([(0, 0), (img_w, HEADER_H)], fill=HEADER_COLOR)
+    header_text = "🎬  BARCHA KINOLAR"
+    try:
+        hbbox = draw.textbbox((0, 0), header_text, font=font_header)
+        hx = (img_w - (hbbox[2] - hbbox[0])) // 2
+        hy = (HEADER_H - (hbbox[3] - hbbox[1])) // 2
+    except Exception:
+        hx, hy = 20, 20
+    draw.text((hx, hy), header_text, fill=TEXT_LIGHT, font=font_header)
+
+    # ── Kinolar kartochkalari ────────────────────────────────
+    def rounded_rect(draw_obj, xy, radius, fill, shadow=True):
+        x0, y0, x1, y1 = xy
+        if shadow:
+            draw_obj.rounded_rectangle(
+                [x0 + 3, y0 + 4, x1 + 3, y1 + 4],
+                radius=radius, fill=(0, 0, 0, 40))
+        draw_obj.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill)
+
+    for idx, (code, movie) in enumerate(movie_list):
+        row = idx // COLS
+        col = idx % COLS
+
+        cx = PAD_X + col * (CARD_W + PAD_X)
+        cy = HEADER_H + PAD_Y // 2 + row * (CARD_H + CARD_GAP)
+
+        card_color = CARD_COLORS[idx % len(CARD_COLORS)]
+
+        try:
+            rounded_rect(draw, [cx, cy, cx + CARD_W, cy + CARD_H], CORNER_R, card_color)
+        except Exception:
+            draw.rectangle([cx, cy, cx + CARD_W, cy + CARD_H], fill=card_color)
+
+        # Kino nomi (HTML teglarsiz)
+        raw_title = _strip_html(movie.get("title", code))
+        # Uzun nomni qisqartirish
+        if len(raw_title) > 26:
+            raw_title = raw_title[:24] + "…"
+
+        # Chap qismida kino nomi
+        name_x = cx + 16
+        name_y = cy + 14
+        try:
+            draw.text((name_x, name_y), raw_title, fill=WHITE, font=font_name)
+        except Exception:
+            draw.text((name_x, name_y), raw_title, fill=WHITE)
+
+        # Pastda kino kodi va qismlar soni
+        ep_count = len(movie.get("episodes", []))
+        code_text = f"Kod: {code}   •   {ep_count} qism"
+        code_x = cx + 16
+        code_y = cy + CARD_H - 28
+        try:
+            draw.text((code_x, code_y), code_text, fill=(220, 235, 255), font=font_code)
+        except Exception:
+            draw.text((code_x, code_y), code_text, fill=(220, 235, 255))
+
+        # Raqam belgisi (o'ng tomonda)
+        num_text = f"#{idx + 1}"
+        try:
+            nbbox = draw.textbbox((0, 0), num_text, font=font_code)
+            nx = cx + CARD_W - (nbbox[2] - nbbox[0]) - 12
+            ny = cy + 10
+            draw.text((nx, ny), num_text, fill=(200, 225, 255), font=font_code)
+        except Exception:
+            pass
+
+    # ── Footer ───────────────────────────────────────────────
+    fy = img_h - FOOTER_H
+    draw.rectangle([(0, fy), (img_w, img_h)], fill=HEADER_COLOR)
+    total_text = f"Jami: {len(movie_list)} ta kino"
+    try:
+        fbbox = draw.textbbox((0, 0), total_text, font=font_code)
+        fx = (img_w - (fbbox[2] - fbbox[0])) // 2
+        fty = fy + (FOOTER_H - (fbbox[3] - fbbox[1])) // 2
+    except Exception:
+        fx, fty = 20, fy + 10
+    draw.text((fx, fty), total_text, fill=TEXT_LIGHT, font=font_code)
+
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=92)
+    buf.seek(0)
+    return buf
 
 
 # ══════════════════════════════════════════════════════════
@@ -1716,6 +1908,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "kino_joy", "qism_qosh", "pullik", "stat",
             "kanal_post", "maj_kanal", "karta", "ilova",
             "emoji_soz", "asosiy", "boshqarish", "broadcast", "kino_uch",
+            "kino_kanal_set",
         ]
         all_admin_btns = {bt(k): k for k in all_admin_btn_keys if bt(k)}
 
@@ -1780,6 +1973,47 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if f_id:
             tasks.append(context.bot.send_document(uid, f_id, caption="<b>Ilova fayli</b>", parse_mode="HTML"))
         await asyncio.gather(*tasks, return_exceptions=True)
+        return
+
+    # ── Barcha kinolar ──────────────────────────────────────
+    if text == bt("barcha_kino"):
+        movies = DB.get("movies", {})
+        if not movies:
+            await sm(context.bot, uid,
+                "🎬 <b>Hozircha hech qanday kino qo'shilmagan.</b>\n\n"
+                "Kino qo'shilganda bu yerda ko'rinadi! 📽")
+            return
+        # Rasm generatsiya qilish
+        if PIL_AVAILABLE:
+            try:
+                img_buf = await asyncio.to_thread(generate_movies_image)
+                if img_buf:
+                    caption = (
+                        f"🎬 <b>Barcha kinolar ro'yxati</b>\n"
+                        f"📋 Jami: <b>{len(movies)} ta kino</b>\n\n"
+                        f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
+                    )
+                    await context.bot.send_photo(
+                        chat_id=uid,
+                        photo=img_buf,
+                        caption=caption,
+                        parse_mode="HTML"
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Barcha kinolar rasm xato: {e}")
+        # Agar PIL yo'q bo'lsa — matn ko'rinishida
+        lines = []
+        for i, (code, movie) in enumerate(movies.items(), 1):
+            title = _strip_html(movie.get("title", code))
+            ep_n  = len(movie.get("episodes", []))
+            lines.append(f"{i}. 🎬 <b>{title}</b>\n   📌 Kod: <code>{code}</code> | {ep_n} qism")
+        text_out = (
+            f"🎬 <b>Barcha kinolar</b> ({len(movies)} ta)\n\n"
+            + "\n\n".join(lines)
+            + "\n\nKino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
+        )
+        await sm(context.bot, uid, text_out)
         return
 
     # ── 9. Yordam so'rovi ───────────────────────────────
@@ -1903,6 +2137,16 @@ async def admin_buttons(update, context, text: str):
         await sm(context.bot, uid, "Ilova fayl yoki video yuboring:")
         return
 
+    if text == bt("kino_kanal_set"):
+        context.user_data["admin_state"] = "set_kino_kanal"
+        cur_url = DB.get("settings", {}).get("kino_kanal_url", "")
+        cur_info = f"\n\nJoriy link: <code>{cur_url}</code>" if cur_url else "\n\n<i>Hali o'rnatilmagan</i>"
+        await sm(context.bot, uid,
+            f"📺 <b>Kino kodlari kanali linki</b>{cur_info}\n\n"
+            f"Kanal linkini kiriting (masalan: https://t.me/mykinochannel)\n"
+            f"<i>O'chirish uchun <code>0</code> kiriting</i>")
+        return
+
     if text == bt("maj_kanal"):
         context.user_data.pop("admin_state", None)
         context.user_data["channel_manage_menu"] = True
@@ -1940,6 +2184,7 @@ def _get_admin_reserved_texts() -> set:
         "kino_joy", "qism_qosh", "pullik", "stat", "kanal_post",
         "maj_kanal", "karta", "ilova", "emoji_soz", "asosiy",
         "boshqarish", "broadcast", "kino_uch", "yordam", "install",
+        "barcha_kino", "kino_kanal_set",
     ]
     result = set()
     for k in keys:
@@ -2073,6 +2318,28 @@ async def admin_state_handler(update, context, text: str) -> bool:
         await save_now()
         context.user_data.pop("admin_state", None)
         await sm(context.bot, uid, f"✅ Karta saqlandi: <code>{text}</code>", admin_menu_kb())
+        return True
+
+    if state == "set_kino_kanal":
+        context.user_data.pop("admin_state", None)
+        if text.strip() == "0":
+            DB.setdefault("settings", {})["kino_kanal_url"] = ""
+            await save_now()
+            await sm(context.bot, uid,
+                "✅ Kino kodlari kanali linki <b>o'chirildi</b>!\n"
+                "Endi tugma ko'rinmaydi.", admin_menu_kb())
+        elif text.startswith("http"):
+            DB.setdefault("settings", {})["kino_kanal_url"] = text.strip()
+            await save_now()
+            await sm(context.bot, uid,
+                f"✅ <b>Kino kodlari kanali</b> linki saqlandi!\n"
+                f"Link: <code>{text.strip()}</code>\n\n"
+                f"Endi kino qismlar ostida tugma ko'rinadi.", admin_menu_kb())
+        else:
+            await sm(context.bot, uid,
+                "❌ Link noto'g'ri. <code>https://</code> bilan boshlanishi kerak.\n"
+                "Qayta kiriting yoki o'chirish uchun <code>0</code> yuboring:")
+            context.user_data["admin_state"] = "set_kino_kanal"
         return True
 
     if state == "add_movie_code":
