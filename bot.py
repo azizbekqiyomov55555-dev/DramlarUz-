@@ -1066,7 +1066,8 @@ def _strip_html(text: str) -> str:
 
 def generate_movies_image() -> BytesIO | None:
     """
-    Barcha kinolarni chiroyli oq fonda ro'yxat ko'rinishida rasmga chiqaradi.
+    Barcha kinolarni chiroyli oq katak fonda, qalin yozuv bilan,
+    kino nomi + kodi + ko'rilganlar soni ko'rsatilib rasmga chiqaradi.
     """
     if not PIL_AVAILABLE:
         return None
@@ -1078,52 +1079,51 @@ def generate_movies_image() -> BytesIO | None:
     movie_list = list(movies.items())
 
     # ── Ranglar ──────────────────────────────────────────────
-    BG_COLOR     = (245, 248, 255)
-    HEADER_BG    = (28, 78, 175)
-    CARD_COLORS  = [
-        (41, 115, 240),
-        (36, 155, 64),
-        (210, 47, 63),
-        (245, 135, 0),
-        (102, 58, 185),
-        (20, 154, 175),
-    ]
+    BG_COLOR     = (250, 250, 252)
+    GRID_COLOR   = (208, 213, 228)
+    HEADER_BG    = (20, 60, 160)
     WHITE        = (255, 255, 255)
-    LIGHT_TEXT   = (255, 255, 255)
-    CODE_COLOR   = (210, 228, 255)
+    TEXT_DARK    = (28, 33, 52)
+    CODE_COLOR   = (60, 90, 190)
+    VIEWS_COLOR  = (40, 140, 70)
+    EP_COLOR     = (100, 100, 130)
+    ACCENT_COLORS = [
+        (25,  95,  215),
+        (40,  160,  70),
+        (200,  50,  60),
+        (200, 120,   0),
+        (110,  60, 190),
+        (  0, 140, 180),
+    ]
 
     # ── O'lchamlar ───────────────────────────────────────────
-    IMG_W    = 800
-    PAD_X    = 20
-    PAD_Y    = 12
-    CARD_H   = 80
-    GAP      = 10
-    HEADER_H = 80
-    FOOTER_H = 44
+    IMG_W    = 820
+    PAD_X    = 22
+    TOP_PAD  = 14
+    CARD_H   = 92
+    GAP      = 8
+    HEADER_H = 92
+    FOOTER_H = 52
+    BADGE_SZ = 52
+    GRID_STP = 28
 
-    img_h = HEADER_H + len(movie_list) * (CARD_H + GAP) + PAD_Y + FOOTER_H
+    img_h = HEADER_H + TOP_PAD + len(movie_list) * (CARD_H + GAP) + FOOTER_H + 10
 
-    img = Image.new("RGB", (IMG_W, img_h), BG_COLOR)
-    draw = ImageDraw.Draw(img, "RGBA")
+    img  = Image.new("RGB", (IMG_W, img_h), BG_COLOR)
+    draw = ImageDraw.Draw(img)
 
     # ── Shrift topish ─────────────────────────────────────────
     font_paths_bold = [
+        "/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
         "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
         "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
     ]
-    font_paths_reg = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-    ]
 
-    def try_font(paths, size):
-        for p in paths:
+    def try_font(size):
+        for p in font_paths_bold:
             if os.path.exists(p):
                 try:
                     return ImageFont.truetype(p, size)
@@ -1131,82 +1131,105 @@ def generate_movies_image() -> BytesIO | None:
                     continue
         return ImageFont.load_default()
 
-    fnt_header  = try_font(font_paths_bold, 34)
-    fnt_title   = try_font(font_paths_bold, 21)
-    fnt_code    = try_font(font_paths_reg,  16)
-    fnt_footer  = try_font(font_paths_reg,  17)
+    fnt_header = try_font(34)
+    fnt_num    = try_font(22)
+    fnt_title  = try_font(20)
+    fnt_sub    = try_font(14)
+    fnt_footer = try_font(17)
+
+    # ── Katak fon (grid) ─────────────────────────────────────
+    for x in range(0, IMG_W, GRID_STP):
+        draw.line([(x, 0), (x, img_h)], fill=GRID_COLOR, width=1)
+    for y in range(0, img_h, GRID_STP):
+        draw.line([(0, y), (IMG_W, y)], fill=GRID_COLOR, width=1)
 
     # ── Header ───────────────────────────────────────────────
     draw.rectangle([(0, 0), (IMG_W, HEADER_H)], fill=HEADER_BG)
-    h_text = "🎬  BARCHA KINOLAR"
+    h_text = "BARCHA KINOLAR"
     try:
         hbb = draw.textbbox((0, 0), h_text, font=fnt_header)
-        hx = (IMG_W - (hbb[2] - hbb[0])) // 2
-        hy = (HEADER_H - (hbb[3] - hbb[1])) // 2
+        hx  = (IMG_W - (hbb[2] - hbb[0])) // 2
+        hy  = (HEADER_H - (hbb[3] - hbb[1])) // 2
     except Exception:
-        hx, hy = 30, 22
-    draw.text((hx, hy), h_text, fill=LIGHT_TEXT, font=fnt_header)
+        hx, hy = 40, 28
+    draw.text((hx, hy), h_text, fill=WHITE, font=fnt_header)
 
-    # ── Kino kartochkalari (1 ustunli ro'yxat) ───────────────
+    # ── Kino kartochkalari ────────────────────────────────────
     for idx, (code, movie) in enumerate(movie_list):
-        y0 = HEADER_H + PAD_Y // 2 + idx * (CARD_H + GAP)
+        y0 = HEADER_H + TOP_PAD + idx * (CARD_H + GAP)
         y1 = y0 + CARD_H
         x0 = PAD_X
         x1 = IMG_W - PAD_X
+        col = ACCENT_COLORS[idx % len(ACCENT_COLORS)]
 
-        color = CARD_COLORS[idx % len(CARD_COLORS)]
+        # Oq karta
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=12, fill=WHITE, outline=col, width=3)
 
-        # Soya
-        draw.rounded_rectangle([x0 + 3, y0 + 4, x1 + 3, y1 + 4],
-                                radius=14, fill=(0, 0, 0, 35))
-        # Kartochka
-        draw.rounded_rectangle([x0, y0, x1, y1], radius=14, fill=color)
+        # Chap rang chizig'i
+        draw.rounded_rectangle([x0, y0, x0 + 7, y1], radius=4, fill=col)
 
-        # Raqam doirasi
+        # Raqam nishoni (badge)
+        bx0 = x0 + 16
+        bx1 = bx0 + BADGE_SZ
+        by0 = y0 + (CARD_H - BADGE_SZ) // 2
+        by1 = by0 + BADGE_SZ
+        draw.ellipse([bx0, by0, bx1, by1], fill=col)
         num_txt = str(idx + 1)
-        circle_r = 22
-        cx_c = x0 + 16 + circle_r
-        cy_c = y0 + CARD_H // 2
-        draw.ellipse([cx_c - circle_r, cy_c - circle_r,
-                      cx_c + circle_r, cy_c + circle_r],
-                     fill=(255, 255, 255, 60))
         try:
-            nbb = draw.textbbox((0, 0), num_txt, font=fnt_title)
-            nx = cx_c - (nbb[2] - nbb[0]) // 2
-            ny = cy_c - (nbb[3] - nbb[1]) // 2
+            nb  = draw.textbbox((0, 0), num_txt, font=fnt_num)
+            nxc = bx0 + (BADGE_SZ - (nb[2] - nb[0])) // 2
+            nyc = by0 + (BADGE_SZ - (nb[3] - nb[1])) // 2
         except Exception:
-            nx, ny = cx_c - 6, cy_c - 8
-        draw.text((nx, ny), num_txt, fill=WHITE, font=fnt_title)
+            nxc, nyc = bx0 + 14, by0 + 12
+        draw.text((nxc, nyc), num_txt, fill=WHITE, font=fnt_num)
 
-        # Kino nomi
+        # Matn maydoni
+        tx = bx1 + 16
+
+        # Kino nomi (qalin)
         raw_title = _strip_html(movie.get("title", code))
-        if len(raw_title) > 42:
-            raw_title = raw_title[:40] + "…"
+        if len(raw_title) > 40:
+            raw_title = raw_title[:38] + "…"
+        title_y = y0 + 14
+        draw.text((tx, title_y), raw_title, fill=TEXT_DARK, font=fnt_title)
 
-        text_x = cx_c + circle_r + 14
-        name_y = y0 + 12
-        draw.text((text_x, name_y), raw_title, fill=WHITE, font=fnt_title)
+        # Kod | qismlar | ko'rilganlar (qalin)
+        ep_count    = len(movie.get("episodes", []))
+        views_total = sum(movie.get("views", {}).values())
+        sub_y = y0 + 50
 
-        # Kod va qismlar soni
-        ep_count  = len(movie.get("episodes", []))
-        code_line = f"📌 Kod: {code}   •   {ep_count} qism"
-        code_y    = y0 + CARD_H - 28
-        draw.text((text_x, code_y), code_line, fill=CODE_COLOR, font=fnt_code)
+        code_part  = f"Kod: {code}"
+        ep_part    = f"  |  {ep_count} qism"
+        views_part = f"  |  {views_total} korilgan"
+
+        draw.text((tx, sub_y), code_part, fill=CODE_COLOR, font=fnt_sub)
+        try:
+            cb = draw.textbbox((0, 0), code_part, font=fnt_sub)
+            ex = tx + (cb[2] - cb[0])
+        except Exception:
+            ex = tx + 85
+        draw.text((ex, sub_y), ep_part, fill=EP_COLOR, font=fnt_sub)
+        try:
+            eb = draw.textbbox((0, 0), ep_part, font=fnt_sub)
+            vx = ex + (eb[2] - eb[0])
+        except Exception:
+            vx = ex + 68
+        draw.text((vx, sub_y), views_part, fill=VIEWS_COLOR, font=fnt_sub)
 
     # ── Footer ───────────────────────────────────────────────
     fy = img_h - FOOTER_H
     draw.rectangle([(0, fy), (IMG_W, img_h)], fill=HEADER_BG)
-    f_text = f"Jami: {len(movie_list)} ta kino  •  Kino kodini yuboring!"
+    f_text = f"Jami: {len(movie_list)} ta kino  |  Kino kodini yuboring!"
     try:
         fbb = draw.textbbox((0, 0), f_text, font=fnt_footer)
         fx  = (IMG_W - (fbb[2] - fbb[0])) // 2
         fy2 = fy + (FOOTER_H - (fbb[3] - fbb[1])) // 2
     except Exception:
-        fx, fy2 = 30, fy + 10
-    draw.text((fx, fy2), f_text, fill=LIGHT_TEXT, font=fnt_footer)
+        fx, fy2 = 40, fy + 16
+    draw.text((fx, fy2), f_text, fill=WHITE, font=fnt_footer)
 
     buf = BytesIO()
-    img.save(buf, format="JPEG", quality=93)
+    img.save(buf, format="JPEG", quality=95)
     buf.seek(0)
     return buf
 
