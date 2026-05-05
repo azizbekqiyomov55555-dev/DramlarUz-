@@ -42,43 +42,61 @@ _save_lock = threading.Lock()
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ─── UNICODE QALIN (BOLD) YORDAMCHI ────────────────────────
+def to_bold(text: str) -> str:
+    """Matnni Unicode Mathematical Bold harflarga o'tkazadi (tugmalar uchun)"""
+    result = []
+    for ch in text:
+        if 'A' <= ch <= 'Z':
+            result.append(chr(0x1D400 + ord(ch) - ord('A')))
+        elif 'a' <= ch <= 'z':
+            result.append(chr(0x1D41A + ord(ch) - ord('a')))
+        elif '0' <= ch <= '9':
+            result.append(chr(0x1D7CE + ord(ch) - ord('0')))
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+_B = to_bold  # qisqartma
+
+
 # ─── BUTTON TEXTS ──────────────────────────────────────────
 DEFAULT_BTN = {
-    "yordam":      "🎧 Yordam",
-    "install":     "📲 Ilovani o'rnatish",
-    "barcha_kino": "🎬 Barcha kinolar",
-    "kino_kanal":  "📺 Kino kodlari kanali",
-    "kino_joy":    "🎥 Kino joylash",
-    "qism_qosh":   "➕ Qism qo'shish",
-    "pullik":      "💰 Qismni pullik qilish",
-    "stat":        "📊 Statistika",
-    "kanal_post":  "📤 Kanalga post",
-    "maj_kanal":   "📡 Majburiy kanal",
-    "karta":       "💳 Karta raqami",
-    "ilova":       "📦 Ilova fayl/video",
-    "emoji_soz":   "🎨 Emoji sozlamalari",
-    "asosiy":      "🏠 Asosiy menyu",
-    "boshqarish":  "⚙️ Boshqarish",
-    "tekshir":     "✅ Tekshirish",
-    "tasdiq":      "✅ Tasdiqlash",
-    "bekor":       "❌ Bekor qilish",
-    "ulash":       "🔗 Do'stlarga ulashish",
-    "tomosha":     "▶️ Tomosha qilish",
-    "javob":       "💬 Javob berish",
-    "yangi":       "🔄 Yangilash",
-    "qism_add":    "➕ Qism qo'shish",
-    "narx_bel":    "💰 Narx belgilash",
-    "kut":         "⏳ Tasdiqlanishini kuting",
-    "bosh":        "🏠 Bosh menyu",
-    "tiklash":     "🔄 Hammasini tiklash",
-    "yopish":      "❌ Yopish",
-    "default_q":   "🔄 Defaultga qaytarish",
-    "orqaga":      "⬅️ Orqaga",
-    "broadcast":   "📢 Barchaga xabar",
-    "kino_uch":    "🗑 Kino o'chirish",
-    "prev_qism":   "⬅️ Oldingi qismlar",
-    "next_qism":   "➡️ Boshqa qismlar",
-    "kino_kanal_set": "🔗 Kino kanali linkini o'rnatish",
+    "yordam":         f"🎧 {_B('Yordam')}",
+    "install":        f"📲 {_B('Ilovani ornatish')}",
+    "barcha_kino":    f"🎬 {_B('Barcha kinolar')}",
+    "kino_kanal":     f"📺 {_B('Kino kodlari kanali')}",
+    "kino_joy":       f"🎥 {_B('Kino joylash')}",
+    "qism_qosh":      f"➕ {_B('Qism qoshish')}",
+    "pullik":         f"💰 {_B('Qismni pullik qilish')}",
+    "stat":           f"📊 {_B('Statistika')}",
+    "kanal_post":     f"📤 {_B('Kanalga post')}",
+    "maj_kanal":      f"📡 {_B('Majburiy kanal')}",
+    "karta":          f"💳 {_B('Karta raqami')}",
+    "ilova":          f"📦 {_B('Ilova fayl/video')}",
+    "emoji_soz":      f"🎨 {_B('Emoji sozlamalari')}",
+    "asosiy":         f"🏠 {_B('Asosiy menyu')}",
+    "boshqarish":     f"⚙️ {_B('Boshqarish')}",
+    "tekshir":        f"✅ {_B('Tekshirish')}",
+    "tasdiq":         f"✅ {_B('Tasdiqlash')}",
+    "bekor":          f"❌ {_B('Bekor qilish')}",
+    "ulash":          f"🔗 {_B('Dostlarga ulashish')}",
+    "tomosha":        f"▶️ {_B('Tomosha qilish')}",
+    "javob":          f"💬 {_B('Javob berish')}",
+    "yangi":          f"🔄 {_B('Yangilash')}",
+    "qism_add":       f"➕ {_B('Qism qoshish')}",
+    "narx_bel":       f"💰 {_B('Narx belgilash')}",
+    "kut":            f"⏳ {_B('Tasdiqlanishini kuting')}",
+    "bosh":           f"🏠 {_B('Bosh menyu')}",
+    "tiklash":        f"🔄 {_B('Hammasini tiklash')}",
+    "yopish":         f"❌ {_B('Yopish')}",
+    "default_q":      f"🔄 {_B('Defaultga qaytarish')}",
+    "orqaga":         f"⬅️ {_B('Orqaga')}",
+    "broadcast":      f"📢 {_B('Barchaga xabar')}",
+    "kino_uch":       f"🗑 {_B('Kino ochirish')}",
+    "prev_qism":      f"⬅️ {_B('Oldingi qismlar')}",
+    "next_qism":      f"➡️ {_B('Boshqa qismlar')}",
+    "kino_kanal_set": f"🔗 {_B('Kino kanali linkini ornatish')}",
 }
 
 BTN_LABELS = {
@@ -1048,8 +1066,7 @@ def _strip_html(text: str) -> str:
 
 def generate_movies_image() -> BytesIO | None:
     """
-    Barcha kinolarni chiroyli oq fonda katakli ko'rinishda rasmga chiqaradi.
-    Pillow kutubxonasi bo'lmasa None qaytaradi.
+    Barcha kinolarni chiroyli oq fonda ro'yxat ko'rinishida rasmga chiqaradi.
     """
     if not PIL_AVAILABLE:
         return None
@@ -1058,151 +1075,138 @@ def generate_movies_image() -> BytesIO | None:
     if not movies:
         return None
 
+    movie_list = list(movies.items())
+
     # ── Ranglar ──────────────────────────────────────────────
-    BG_COLOR      = (248, 250, 255)     # Och ko'k-oq fon
-    HEADER_COLOR  = (30, 80, 180)       # Sarlavha — to'q ko'k
-    CARD_COLORS   = [
-        (52, 120, 246),    # Ko'k
-        (40, 167, 69),     # Yashil
-        (220, 53, 69),     # Qizil
-        (255, 140, 0),     # To'q sariq
-        (111, 66, 193),    # Binafsha
-        (23, 162, 184),    # Moviy
+    BG_COLOR     = (245, 248, 255)
+    HEADER_BG    = (28, 78, 175)
+    CARD_COLORS  = [
+        (41, 115, 240),
+        (36, 155, 64),
+        (210, 47, 63),
+        (245, 135, 0),
+        (102, 58, 185),
+        (20, 154, 175),
     ]
-    WHITE         = (255, 255, 255)
-    TEXT_LIGHT    = (255, 255, 255)
-    TEXT_DARK     = (30, 30, 30)
-    SHADOW_COLOR  = (180, 200, 230, 80)
+    WHITE        = (255, 255, 255)
+    LIGHT_TEXT   = (255, 255, 255)
+    CODE_COLOR   = (210, 228, 255)
 
     # ── O'lchamlar ───────────────────────────────────────────
-    COLS          = 2
-    CARD_W        = 380
-    CARD_H        = 90
-    PAD_X         = 24
-    PAD_Y         = 16
-    CARD_GAP      = 14
-    HEADER_H      = 90
-    FOOTER_H      = 50
-    CORNER_R      = 16
+    IMG_W    = 800
+    PAD_X    = 20
+    PAD_Y    = 12
+    CARD_H   = 80
+    GAP      = 10
+    HEADER_H = 80
+    FOOTER_H = 44
 
-    movie_list = list(movies.items())
-    rows_count = (len(movie_list) + COLS - 1) // COLS
+    img_h = HEADER_H + len(movie_list) * (CARD_H + GAP) + PAD_Y + FOOTER_H
 
-    img_w = COLS * CARD_W + (COLS + 1) * PAD_X
-    img_h = HEADER_H + rows_count * (CARD_H + CARD_GAP) + PAD_Y + FOOTER_H
-
-    img = Image.new("RGB", (img_w, img_h), BG_COLOR)
+    img = Image.new("RGB", (IMG_W, img_h), BG_COLOR)
     draw = ImageDraw.Draw(img, "RGBA")
 
-    # ── Shrift ───────────────────────────────────────────────
-    font_paths = [
+    # ── Shrift topish ─────────────────────────────────────────
+    font_paths_bold = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
         "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
     ]
-    font_title  = None
-    font_name   = None
-    font_code   = None
-    font_header = None
-    for fp in font_paths:
-        if os.path.exists(fp):
-            try:
-                font_header = ImageFont.truetype(fp, 36)
-                font_title  = ImageFont.truetype(fp, 20)
-                font_code   = ImageFont.truetype(fp, 16)
-                font_name   = ImageFont.truetype(fp, 19)
-                break
-            except Exception:
-                continue
-    if font_title is None:
-        font_header = ImageFont.load_default()
-        font_title  = ImageFont.load_default()
-        font_code   = ImageFont.load_default()
-        font_name   = ImageFont.load_default()
+    font_paths_reg = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    ]
 
-    # ── Sarlavha (header) ────────────────────────────────────
-    draw.rectangle([(0, 0), (img_w, HEADER_H)], fill=HEADER_COLOR)
-    header_text = "🎬  BARCHA KINOLAR"
+    def try_font(paths, size):
+        for p in paths:
+            if os.path.exists(p):
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    continue
+        return ImageFont.load_default()
+
+    fnt_header  = try_font(font_paths_bold, 34)
+    fnt_title   = try_font(font_paths_bold, 21)
+    fnt_code    = try_font(font_paths_reg,  16)
+    fnt_footer  = try_font(font_paths_reg,  17)
+
+    # ── Header ───────────────────────────────────────────────
+    draw.rectangle([(0, 0), (IMG_W, HEADER_H)], fill=HEADER_BG)
+    h_text = "🎬  BARCHA KINOLAR"
     try:
-        hbbox = draw.textbbox((0, 0), header_text, font=font_header)
-        hx = (img_w - (hbbox[2] - hbbox[0])) // 2
-        hy = (HEADER_H - (hbbox[3] - hbbox[1])) // 2
+        hbb = draw.textbbox((0, 0), h_text, font=fnt_header)
+        hx = (IMG_W - (hbb[2] - hbb[0])) // 2
+        hy = (HEADER_H - (hbb[3] - hbb[1])) // 2
     except Exception:
-        hx, hy = 20, 20
-    draw.text((hx, hy), header_text, fill=TEXT_LIGHT, font=font_header)
+        hx, hy = 30, 22
+    draw.text((hx, hy), h_text, fill=LIGHT_TEXT, font=fnt_header)
 
-    # ── Kinolar kartochkalari ────────────────────────────────
-    def rounded_rect(draw_obj, xy, radius, fill, shadow=True):
-        x0, y0, x1, y1 = xy
-        if shadow:
-            draw_obj.rounded_rectangle(
-                [x0 + 3, y0 + 4, x1 + 3, y1 + 4],
-                radius=radius, fill=(0, 0, 0, 40))
-        draw_obj.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill)
-
+    # ── Kino kartochkalari (1 ustunli ro'yxat) ───────────────
     for idx, (code, movie) in enumerate(movie_list):
-        row = idx // COLS
-        col = idx % COLS
+        y0 = HEADER_H + PAD_Y // 2 + idx * (CARD_H + GAP)
+        y1 = y0 + CARD_H
+        x0 = PAD_X
+        x1 = IMG_W - PAD_X
 
-        cx = PAD_X + col * (CARD_W + PAD_X)
-        cy = HEADER_H + PAD_Y // 2 + row * (CARD_H + CARD_GAP)
+        color = CARD_COLORS[idx % len(CARD_COLORS)]
 
-        card_color = CARD_COLORS[idx % len(CARD_COLORS)]
+        # Soya
+        draw.rounded_rectangle([x0 + 3, y0 + 4, x1 + 3, y1 + 4],
+                                radius=14, fill=(0, 0, 0, 35))
+        # Kartochka
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=14, fill=color)
 
+        # Raqam doirasi
+        num_txt = str(idx + 1)
+        circle_r = 22
+        cx_c = x0 + 16 + circle_r
+        cy_c = y0 + CARD_H // 2
+        draw.ellipse([cx_c - circle_r, cy_c - circle_r,
+                      cx_c + circle_r, cy_c + circle_r],
+                     fill=(255, 255, 255, 60))
         try:
-            rounded_rect(draw, [cx, cy, cx + CARD_W, cy + CARD_H], CORNER_R, card_color)
+            nbb = draw.textbbox((0, 0), num_txt, font=fnt_title)
+            nx = cx_c - (nbb[2] - nbb[0]) // 2
+            ny = cy_c - (nbb[3] - nbb[1]) // 2
         except Exception:
-            draw.rectangle([cx, cy, cx + CARD_W, cy + CARD_H], fill=card_color)
+            nx, ny = cx_c - 6, cy_c - 8
+        draw.text((nx, ny), num_txt, fill=WHITE, font=fnt_title)
 
-        # Kino nomi (HTML teglarsiz)
+        # Kino nomi
         raw_title = _strip_html(movie.get("title", code))
-        # Uzun nomni qisqartirish
-        if len(raw_title) > 26:
-            raw_title = raw_title[:24] + "…"
+        if len(raw_title) > 42:
+            raw_title = raw_title[:40] + "…"
 
-        # Chap qismida kino nomi
-        name_x = cx + 16
-        name_y = cy + 14
-        try:
-            draw.text((name_x, name_y), raw_title, fill=WHITE, font=font_name)
-        except Exception:
-            draw.text((name_x, name_y), raw_title, fill=WHITE)
+        text_x = cx_c + circle_r + 14
+        name_y = y0 + 12
+        draw.text((text_x, name_y), raw_title, fill=WHITE, font=fnt_title)
 
-        # Pastda kino kodi va qismlar soni
-        ep_count = len(movie.get("episodes", []))
-        code_text = f"Kod: {code}   •   {ep_count} qism"
-        code_x = cx + 16
-        code_y = cy + CARD_H - 28
-        try:
-            draw.text((code_x, code_y), code_text, fill=(220, 235, 255), font=font_code)
-        except Exception:
-            draw.text((code_x, code_y), code_text, fill=(220, 235, 255))
-
-        # Raqam belgisi (o'ng tomonda)
-        num_text = f"#{idx + 1}"
-        try:
-            nbbox = draw.textbbox((0, 0), num_text, font=font_code)
-            nx = cx + CARD_W - (nbbox[2] - nbbox[0]) - 12
-            ny = cy + 10
-            draw.text((nx, ny), num_text, fill=(200, 225, 255), font=font_code)
-        except Exception:
-            pass
+        # Kod va qismlar soni
+        ep_count  = len(movie.get("episodes", []))
+        code_line = f"📌 Kod: {code}   •   {ep_count} qism"
+        code_y    = y0 + CARD_H - 28
+        draw.text((text_x, code_y), code_line, fill=CODE_COLOR, font=fnt_code)
 
     # ── Footer ───────────────────────────────────────────────
     fy = img_h - FOOTER_H
-    draw.rectangle([(0, fy), (img_w, img_h)], fill=HEADER_COLOR)
-    total_text = f"Jami: {len(movie_list)} ta kino"
+    draw.rectangle([(0, fy), (IMG_W, img_h)], fill=HEADER_BG)
+    f_text = f"Jami: {len(movie_list)} ta kino  •  Kino kodini yuboring!"
     try:
-        fbbox = draw.textbbox((0, 0), total_text, font=font_code)
-        fx = (img_w - (fbbox[2] - fbbox[0])) // 2
-        fty = fy + (FOOTER_H - (fbbox[3] - fbbox[1])) // 2
+        fbb = draw.textbbox((0, 0), f_text, font=fnt_footer)
+        fx  = (IMG_W - (fbb[2] - fbb[0])) // 2
+        fy2 = fy + (FOOTER_H - (fbb[3] - fbb[1])) // 2
     except Exception:
-        fx, fty = 20, fy + 10
-    draw.text((fx, fty), total_text, fill=TEXT_LIGHT, font=font_code)
+        fx, fy2 = 30, fy + 10
+    draw.text((fx, fy2), f_text, fill=LIGHT_TEXT, font=fnt_footer)
 
     buf = BytesIO()
-    img.save(buf, format="JPEG", quality=92)
+    img.save(buf, format="JPEG", quality=93)
     buf.seek(0)
     return buf
 
@@ -1983,6 +1987,14 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🎬 <b>Hozircha hech qanday kino qo'shilmagan.</b>\n\n"
                 "Kino qo'shilganda bu yerda ko'rinadi! 📽")
             return
+
+        # Kino kodlari kanali inline tugmasi
+        kanal_url = DB.get("settings", {}).get("kino_kanal_url", "")
+        kanal_kb  = None
+        if kanal_url:
+            kanal_kb = ikb([[ibtn(bt("kino_kanal"), url=kanal_url, style="primary",
+                                  emoji_id=get_eid("kino_kanal"))]])
+
         # Rasm generatsiya qilish
         if PIL_AVAILABLE:
             try:
@@ -1993,16 +2005,20 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"📋 Jami: <b>{len(movies)} ta kino</b>\n\n"
                         f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
                     )
-                    await context.bot.send_photo(
+                    send_kw = dict(
                         chat_id=uid,
                         photo=img_buf,
                         caption=caption,
-                        parse_mode="HTML"
+                        parse_mode="HTML",
                     )
+                    if kanal_kb:
+                        send_kw["reply_markup"] = kanal_kb
+                    await context.bot.send_photo(**send_kw)
                     return
             except Exception as e:
                 logger.error(f"Barcha kinolar rasm xato: {e}")
-        # Agar PIL yo'q bo'lsa — matn ko'rinishida
+
+        # Agar PIL yo'q yoki rasm yaratishda xato — matn ko'rinishida
         lines = []
         for i, (code, movie) in enumerate(movies.items(), 1):
             title = _strip_html(movie.get("title", code))
@@ -2013,7 +2029,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             + "\n\n".join(lines)
             + "\n\nKino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
         )
-        await sm(context.bot, uid, text_out)
+        await sm(context.bot, uid, text_out, kanal_kb)
         return
 
     # ── 9. Yordam so'rovi ───────────────────────────────
