@@ -1068,7 +1068,7 @@ PHOTO_PAGE_SIZE = 20   # Har bir suratda nechta kino ko'rsatilsin
 
 
 def generate_movies_image(movie_slice: list, page: int = 1, total_pages: int = 1,
-                          total_count: int = 0) -> BytesIO | None:
+                          total_count: int = 0, start_offset: int = 0) -> BytesIO | None:
     """
     Berilgan movie_slice ro'yxatini chiroyli oq katak fonda, qalin yozuv bilan rasmga chiqaradi.
     movie_slice: [(code, movie_dict), ...]
@@ -1176,7 +1176,7 @@ def generate_movies_image(movie_slice: list, page: int = 1, total_pages: int = 1
         by0 = y0 + (CARD_H - BADGE_SZ) // 2
         by1 = by0 + BADGE_SZ
         draw.ellipse([bx0, by0, bx1, by1], fill=col)
-        num_txt = str(idx + 1)
+        num_txt = str(start_offset + idx + 1)
         try:
             nb  = draw.textbbox((0, 0), num_txt, font=fnt_num)
             nxc = bx0 + (BADGE_SZ - (nb[2] - nb[0])) // 2
@@ -1325,6 +1325,91 @@ def _make_placeholder_image(title: str, code: str, idx: int) -> BytesIO | None:
     return buf
 
 
+KINO_LIST_PAGE_SIZE = 10   # Har bir suratda nechta kino
+
+
+async def _send_kino_list_page(bot, chat_id: int, page: int = 0):
+    """
+    Kinolar ro'yxatini sahifalab PIL surat sifatida yuboradi.
+    Oxirgi sahifada 'Qolgan kinolar' tugmasi bo'lmaydi.
+    Har sahifada 'Keyingi sahifa ➡️' tugmasi bo'ladi (agar bor bo'lsa).
+    """
+    movies = DB.get("movies", {})
+    if not movies:
+        return
+
+    # Eng yangi — oxiridan boshlaymiz (additions oxirda bo'ladi)
+    all_items   = list(movies.items())[::-1]   # teskari — yangi birinchi
+    total_count = len(all_items)
+    total_pages = max(1, (total_count + KINO_LIST_PAGE_SIZE - 1) // KINO_LIST_PAGE_SIZE)
+    page        = max(0, min(page, total_pages - 1))
+
+    start = page * KINO_LIST_PAGE_SIZE
+    end   = min(start + KINO_LIST_PAGE_SIZE, total_count)
+    slice_items = all_items[start:end]
+
+    # ── PIL surat yasash ─────────────────────────────────
+    img_buf = None
+    if PIL_AVAILABLE:
+        try:
+            img_buf = await asyncio.to_thread(
+                generate_movies_image,
+                slice_items,
+                page + 1,
+                total_pages,
+                total_count,
+                start,
+            )
+        except Exception as e:
+            logger.error(f"kino_list surat xato: {e}")
+
+    # ── Inline tugmalar ───────────────────────────────────
+    nav_row  = []
+    if page > 0:
+        nav_row.append(ibtn(f"⬅️ Oldingi", data=f"kino_list|{page - 1}", style="primary"))
+    if page < total_pages - 1:
+        nav_row.append(ibtn(f"Keyingi ➡️", data=f"kino_list|{page + 1}", style="primary"))
+
+    kanal_url = DB.get("settings", {}).get("kino_kanal_url", "")
+    kanal_row = []
+    if kanal_url:
+        kanal_row = [ibtn(bt("kino_kanal"), url=kanal_url, style="primary",
+                           emoji_id=get_eid("kino_kanal"))]
+
+    rows = []
+    if nav_row:
+        rows.append(nav_row)
+    if kanal_row:
+        rows.append(kanal_row)
+    kb = ikb(rows) if rows else None
+
+    caption = (
+        f"🎬 <b>Kinolar ro'yxati</b>  —  sahifa {page+1}/{total_pages}\n"
+        f"📋 Ko'rsatilmoqda: <b>{start+1}–{end}</b>  |  Jami: <b>{total_count} ta</b>\n\n"
+        f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
+    )
+
+    if img_buf:
+        await bot.send_photo(
+            chat_id=chat_id, photo=img_buf,
+            caption=caption, parse_mode="HTML",
+            reply_markup=kb
+        )
+    else:
+        # Matn fallback
+        lines = [
+            f"{start+i+1}. 🎬 <b>{_strip_html(m.get('title', c))}</b>  "
+            f"📌 <code>{c}</code>  {len(m.get('episodes',[]))} qism"
+            for i, (c, m) in enumerate(slice_items)
+        ]
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"🎬 <b>Kinolar</b> ({start+1}–{end} / {total_count}):\n\n" + "\n".join(lines),
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+
 # ══════════════════════════════════════════════════════════
 # START HANDLER
 # ══════════════════════════════════════════════════════════
@@ -1371,6 +1456,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid  = q.from_user.id
 
     await q.answer()
+
+    if data.startswith("kino_list|"):
+        try:
+            pg = int(data.split("|")[1])
+        except Exception:
+            pg = 0
+        await _send_kino_list_page(context.bot, uid, page=pg)
+        return
 
     if data.startswith("ch_del|"):
         if uid != ADMIN_ID:
@@ -2101,112 +2194,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🎬 <b>Hozircha hech qanday kino qo'shilmagan.</b>\n\n"
                 "Kino qo'shilganda bu yerda ko'rinadi! 📽")
             return
-
-        all_items   = list(movies.items())
-        total_count = len(all_items)
-
-        kanal_url = DB.get("settings", {}).get("kino_kanal_url", "")
-        kanal_row = []
-        if kanal_url:
-            kanal_row = [ibtn(bt("kino_kanal"), url=kanal_url, style="primary",
-                               emoji_id=get_eid("kino_kanal"))]
-
-        photo_items = all_items[:PHOTO_PAGE_SIZE]
-        extra_items = all_items[PHOTO_PAGE_SIZE:]
-
-        from telegram import InputMediaPhoto
-
-        # ── Faqat posteri bor kinolar media group sifatida ──
-        media_group  = []
-        no_poster    = []   # posteri yo'q kinolar — matn sifatida yig'amiz
-
-        for idx, (code, movie) in enumerate(photo_items):
-            title    = _strip_html(movie.get("title", code))
-            ep_count = len(movie.get("episodes", []))
-            views    = sum(movie.get("views", {}).values())
-            cap_line = (
-                f"<b>{idx+1}. {title}</b>\n"
-                f"📌 Kod: <code>{code}</code>  |  {ep_count} qism  |  👁 {views}"
-            )
-            poster = movie.get("poster_file_id")
-            if poster:
-                media_group.append(InputMediaPhoto(media=poster, caption=cap_line, parse_mode="HTML"))
-            else:
-                no_poster.append((idx + 1, code, title, ep_count, views))
-
-        # Media group — max 10 ta per batch
-        if media_group:
-            try:
-                for batch_start in range(0, len(media_group), 10):
-                    batch = media_group[batch_start:batch_start + 10]
-                    await context.bot.send_media_group(chat_id=uid, media=batch)
-                    if batch_start + 10 < len(media_group):
-                        await asyncio.sleep(0.5)
-            except Exception as e:
-                logger.error(f"Media group xato: {e}")
-
-        # Posteri yo'q kinolar — matn sifatida
-        if no_poster:
-            lines = [
-                f"{n}. 🎬 <b>{t}</b>\n   📌 Kod: <code>{c}</code>  |  {ep} qism  |  👁 {v}"
-                for n, c, t, ep, v in no_poster
-            ]
-            await sm(context.bot, uid,
-                "📋 <b>Posteri yo'q kinolar:</b>\n\n" + "\n\n".join(lines))
-
-        # Xulosa + kanal tugmasi
-        kb_rows = [kanal_row] if kanal_row else []
-        kb = ikb(kb_rows) if kb_rows else None
-        if extra_items:
-            summary = (
-                f"🎬 <b>Jami {total_count} ta kino</b>\n"
-                f"✅ <b>1–{len(photo_items)} ta</b> yuqorida ko'rsatildi.\n"
-                f"📄 Qolgan <b>{len(extra_items)} ta kino</b> quyidagi faylda 👇\n\n"
-                f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
-            )
-        else:
-            summary = (
-                f"🎬 <b>Barcha {total_count} ta kino</b> yuqorida!\n\n"
-                f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
-            )
-        await sm(context.bot, uid, summary, kb)
-
-        # ── Qolgan kinolar .txt fayl sifatida ───────────────
-        if extra_items:
-            try:
-                lines = []
-                for i, (code, movie) in enumerate(extra_items, len(photo_items) + 1):
-                    title    = _strip_html(movie.get("title", code))
-                    ep_count = len(movie.get("episodes", []))
-                    views    = sum(movie.get("views", {}).values())
-                    lines.append(
-                        f"{i}. {title}\n"
-                        f"   Kod: {code}  |  {ep_count} qism  |  {views} korilgan\n"
-                    )
-                header_txt = (
-                    f"BARCHA KINOLAR RO'YXATI\n"
-                    f"Jami: {total_count} ta  |  Bu faylda: {len(extra_items)} ta "
-                    f"({len(photo_items)+1}-{total_count})\n"
-                    f"{'='*40}\n\n"
-                )
-                file_content = (header_txt + "\n".join(lines)).encode("utf-8")
-                doc_buf = BytesIO(file_content)
-                doc_buf.seek(0)
-                await context.bot.send_document(
-                    chat_id=uid,
-                    document=doc_buf,
-                    filename="kinolar_royxati.txt",
-                    caption=(
-                        f"📄 <b>Qolgan kinolar ro'yxati</b>\n"
-                        f"<b>{len(photo_items)+1}–{total_count}</b> oralig'idagi "
-                        f"<b>{len(extra_items)} ta kino</b>\n\n"
-                        f"Kino <b>kodini</b> yuboring — video <b>darhol</b> keladi! ⚡"
-                    ),
-                    parse_mode="HTML",
-                    reply_markup=kb
-                )
-            except Exception as e:
-                logger.error(f"Barcha kinolar fayl xato: {e}")
+        await _send_kino_list_page(context.bot, uid, page=0)
         return
 
     # ── 9. Yordam so'rovi ───────────────────────────────
